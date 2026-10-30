@@ -8,6 +8,11 @@
 !.env.example
 !.env.docker.example
 /backups/
+/dist/
+/.deployment/
+/packages/
+/RELEASE
+__pycache__/
 *.db
 *.db-shm
 *.db-wal

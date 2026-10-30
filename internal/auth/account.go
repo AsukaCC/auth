@@ -10,39 +10,8 @@ import (
 )
 
 func (a *App) status(w http.ResponseWriter, r *http.Request) {
-	var n int
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
 	m, _ := a.mailConfig()
-	jsonOut(w, 200, map[string]any{"setup_required": n == 0, "mail_enabled": m.Enabled})
-}
-func (a *App) setup(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Email, Name, Password string }
-	if !decode(w, r, &in) {
-		return
-	}
-	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
-	if !emailValid(in.Email) || !validText(in.Name, 80) {
-		fail(w, 400, "请输入有效邮箱和姓名")
-		return
-	}
-	if e := checkPassword(in.Password); e != nil {
-		fail(w, 400, e.Error())
-		return
-	}
-	p, _ := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
-	uid := id()
-	res, e := a.db.Exec("INSERT INTO users(id,email,name,password,role,created_at) SELECT ?,?,?,?,'admin',? WHERE NOT EXISTS(SELECT 1 FROM users)", uid, in.Email, in.Name, string(p), now())
-	if e != nil {
-		fail(w, 500, "初始化失败")
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n != 1 {
-		fail(w, 409, "系统已初始化")
-		return
-	}
-	u, _ := a.user(uid)
-	a.finishLogin(w, r, u, "console", true)
+	jsonOut(w, 200, map[string]any{"mail_enabled": m.Enabled, "version": Version, "schema_version": SchemaVersion})
 }
 
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-comparison-password"), bcrypt.DefaultCost)

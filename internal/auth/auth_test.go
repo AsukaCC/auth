@@ -24,7 +24,7 @@ type testClient struct {
 
 func newTest(t *testing.T) *testClient {
 	t.Helper()
-	a, e := New(Config{DataDir: t.TempDir(), PublicURL: "http://auth.test", WebDir: t.TempDir()})
+	a, e := New(Config{DataDir: t.TempDir(), PublicURL: "http://auth.test", WebDir: t.TempDir(), AdminEmail: "admin@example.com", AdminName: "Admin", AdminPassword: "admin-password-123"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -61,7 +61,7 @@ func (c *testClient) request(method, path string, data any, want int) map[string
 	return out
 }
 func (c *testClient) setup() string {
-	b := c.request("POST", "/api/setup", map[string]string{"email": "admin@example.com", "name": "Admin", "password": "admin-password-123"}, 200)
+	b := c.request("POST", "/api/auth/login", map[string]string{"email": "admin@example.com", "password": "admin-password-123"}, 200)
 	return b["user"].(map[string]any)["id"].(string)
 }
 func (c *testClient) app(name string) string {
@@ -73,7 +73,7 @@ func (c *testClient) makeKey(aid string, scopes ...string) string {
 func TestRolesScopesAndSessionIsolation(t *testing.T) {
 	c := newTest(t)
 	c.setup()
-	c.request("POST", "/api/setup", map[string]string{"email": "other@example.com", "name": "Other", "password": "password-12345"}, 409)
+	c.request("POST", "/api/setup", map[string]string{"email": "other@example.com", "name": "Other", "password": "password-12345"}, 404)
 	adminCookie := c.cookie
 	app1 := c.app("One")
 	app2 := c.app("Two")
@@ -190,6 +190,10 @@ func TestMailSecretEncryptionPersistenceAndExpiry(t *testing.T) {
 	st, e := os.Stat(keyPath)
 	if e != nil || st.Mode().Perm() != 0600 {
 		t.Fatal("master key permissions")
+	}
+	// A restart closes the old instance before acquiring the same data directory.
+	if err := c.a.Close(); err != nil {
+		t.Fatal(err)
 	}
 	other, e := New(c.a.cfg)
 	if e != nil {

@@ -319,8 +319,9 @@ function ModalShell({
 }
 function App() {
   const [status, setStatus] = useState<{
-      setup_required: boolean;
       mail_enabled: boolean;
+      version: string;
+      schema_version: number;
     } | null>(null),
     [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true),
@@ -461,7 +462,6 @@ function App() {
       </div>
     );
   if (!user) {
-    const setup = status?.setup_required && authMode !== "reset";
     return (
       <div className="auth-layout">
         <aside className="auth-story">
@@ -509,26 +509,22 @@ function App() {
           <div className="auth-box">
             <Badge tone="blue">AUTH CENTER</Badge>
             <h2>
-              {setup
-                ? "创建你的管理空间"
-                : authMode === "login"
-                  ? "欢迎回来"
-                  : authMode === "forgot"
-                    ? "找回账户密码"
-                    : authMode === "appeal"
-                      ? "向管理员申诉"
-                      : "设置新密码"}
+              {authMode === "login"
+                ? "欢迎回来"
+                : authMode === "forgot"
+                  ? "找回账户密码"
+                  : authMode === "appeal"
+                    ? "向管理员申诉"
+                    : "设置新密码"}
             </h2>
             <p className="muted">
-              {setup
-                ? "设置首位管理员，开始连接你的应用。"
-                : authMode === "login"
-                  ? "登录以管理你的账户、应用与访问权限。"
-                  : authMode === "forgot"
-                    ? "通过绑定邮箱接收安全的密码重置链接。"
-                    : authMode === "appeal"
-                      ? "请提供可核实的信息，管理员将与你联系。"
-                      : "链接有效期为 30 分钟，且只能使用一次。"}
+              {authMode === "login"
+                ? "登录以管理你的账户、应用与访问权限。"
+                : authMode === "forgot"
+                  ? "通过绑定邮箱接收安全的密码重置链接。"
+                  : authMode === "appeal"
+                    ? "请提供可核实的信息，管理员将与你联系。"
+                    : "链接有效期为 30 分钟，且只能使用一次。"}
             </p>
             {error && (
               <div className="alert error" role="alert">
@@ -540,11 +536,7 @@ function App() {
                 e.preventDefault();
                 const f = fields(e);
                 void run(async () => {
-                  if (setup) {
-                    await api("/api/setup", "POST", f);
-                    setStatus({ ...status!, setup_required: false });
-                    await refresh();
-                  } else if (authMode === "login") {
+                  if (authMode === "login") {
                     await api("/api/auth/login", "POST", f);
                     await refresh();
                   } else if (authMode === "forgot") {
@@ -565,7 +557,7 @@ function App() {
                   }
                 });
               }}
-              key={`${setup}-${authMode}`}
+              key={authMode}
             >
               {authMode !== "reset" && (
                 <Field label="账户邮箱">
@@ -578,41 +570,27 @@ function App() {
                   />
                 </Field>
               )}
-              {setup && (
-                <Field label="管理员姓名">
-                  <input
-                    name="name"
-                    placeholder="你的姓名"
-                    maxLength={80}
-                    required
-                  />
-                </Field>
-              )}
-              {(setup || authMode === "login" || authMode === "reset") && (
+              {(authMode === "login" || authMode === "reset") && (
                 <Field
                   label={authMode === "reset" ? "新密码" : "密码"}
                   hint={
-                    setup || authMode === "reset"
-                      ? "至少 10 个字符，最多 72 字节"
-                      : undefined
+                    authMode === "reset" ? "密码需要 10–72 个字节" : undefined
                   }
                 >
                   <input
                     type="password"
                     name="password"
-                    minLength={setup || authMode === "reset" ? 10 : undefined}
+                    minLength={authMode === "reset" ? 10 : undefined}
                     maxLength={72}
                     placeholder="输入密码"
                     autoComplete={
-                      setup || authMode === "reset"
-                        ? "new-password"
-                        : "current-password"
+                      authMode === "reset" ? "new-password" : "current-password"
                     }
                     required
                   />
                 </Field>
               )}
-              {!setup && authMode === "login" && (
+              {authMode === "login" && (
                 <Field label="两步验证码（已启用时填写）">
                   <input
                     name="code"
@@ -622,7 +600,7 @@ function App() {
                   />
                 </Field>
               )}
-              {!setup && authMode === "appeal" && (
+              {authMode === "appeal" && (
                 <>
                   <Field label="可联系的方式">
                     <input
@@ -645,51 +623,47 @@ function App() {
               )}
               <Button type="submit" disabled={busy}>
                 {busy ? <LoaderCircle size={17} className="spin" /> : null}
-                {setup
-                  ? "创建管理员账户"
-                  : authMode === "login"
-                    ? "登录控制台"
-                    : authMode === "forgot"
-                      ? "发送找回邮件"
-                      : authMode === "appeal"
-                        ? "提交申诉"
-                        : "重置密码"}
+                {authMode === "login"
+                  ? "登录控制台"
+                  : authMode === "forgot"
+                    ? "发送找回邮件"
+                    : authMode === "appeal"
+                      ? "提交申诉"
+                      : "重置密码"}
                 <ArrowUpRight size={17} />
               </Button>
             </form>
-            {!setup && (
-              <div className="auth-links">
-                {authMode === "login" ? (
-                  <button
-                    onClick={() => {
-                      setError("");
-                      setAuthMode(status?.mail_enabled ? "forgot" : "appeal");
-                    }}
-                  >
-                    忘记密码？{!status?.mail_enabled ? "联系管理员找回" : ""}
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setError("");
-                      setAuthMode("login");
-                    }}
-                  >
-                    返回登录
-                  </button>
-                )}
-                {authMode === "forgot" && (
-                  <button
-                    onClick={() => {
-                      setError("");
-                      setAuthMode("appeal");
-                    }}
-                  >
-                    无法收取邮件？提交申诉
-                  </button>
-                )}
-              </div>
-            )}
+            <div className="auth-links">
+              {authMode === "login" ? (
+                <button
+                  onClick={() => {
+                    setError("");
+                    setAuthMode(status?.mail_enabled ? "forgot" : "appeal");
+                  }}
+                >
+                  忘记密码？{!status?.mail_enabled ? "联系管理员找回" : ""}
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setError("");
+                    setAuthMode("login");
+                  }}
+                >
+                  返回登录
+                </button>
+              )}
+              {authMode === "forgot" && (
+                <button
+                  onClick={() => {
+                    setError("");
+                    setAuthMode("appeal");
+                  }}
+                >
+                  无法收取邮件？提交申诉
+                </button>
+              )}
+            </div>
             <div className="auth-note">
               <ShieldCheck size={15} />
               你的身份信息始终受到保护
@@ -784,7 +758,7 @@ function App() {
         <div className="sidebar-bottom">
           <div className="system-status">
             <span className="status-dot" />
-            身份服务已连接
+            身份服务 · {status?.version || "dev"}
           </div>
           <div className="profile">
             <div className="avatar">{user.name.slice(0, 1).toUpperCase()}</div>

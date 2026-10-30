@@ -12,4 +12,8 @@ auth-server
 **/*.db-wal
 **/master.key
 backups
+dist
+.deployment
+packages
+**/__pycache__
 web/*.tsbuildinfo

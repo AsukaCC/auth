@@ -11,15 +11,18 @@
 - `internal/auth/apps.go`：应用归属、API Key、第三方接口和用户角色。
 - `internal/auth/recovery.go`：SMTP、邮件找回和管理员申诉处理。
 - `internal/auth/auth_test.go`：基于临时数据库和 httptest 的行为测试。
+- `internal/auth/bootstrap_test.go`、`cmd/server/main_test.go`：管理员初始化和 dotenv 加载测试。
 - `web/src/main.tsx`：React 页面、表单、弹窗和 API 调用。
 - `web/src/style.css`：界面样式和响应式布局。
 - `Dockerfile`、`compose.yaml`、`.env.docker.example`：容器构建与部署。
+- `VERSION`、`scripts/release.sh`、`authctl.sh`：离线发布包、版本更新、备份与回退；`internal/auth/version.go` 定义结构兼容版本。
 - `README.md`：启动、接口约定、部署和数据备份说明。
 
 ## 常用命令
 
 ```sh
-# 开发：分别在两个终端运行
+# 首次开发：复制 .env.example 为 .env，填写 AUTH_ADMIN_EMAIL 和 AUTH_ADMIN_PASSWORD。
+# 然后分别在两个终端运行
 go run ./cmd/server
 cd web && npm ci && npm run dev
 
@@ -37,9 +40,14 @@ cd web && npm run build
 make build
 
 # Docker 配置检查与部署
+# 首次部署先复制 .env.docker.example 为 .env 并填写管理员配置。
 docker compose config --quiet
 docker compose up -d --build --wait
 docker compose ps
+
+# 离线包与隔离 Docker 发布测试（测试工具额外需要 Python 3.12+）
+make release
+python3 scripts/test_release.py dist/auth-center-1.0.0-amd64.tar.gz
 ```
 
 开发地址为 `http://127.0.0.1:5173`，Go 默认监听 `127.0.0.1:8080`。Vite 代理 `/api` 和 `/v1`；生产环境由 Go 直接托管 `web/dist`。`/healthz` 用于容器健康检查。
@@ -57,6 +65,8 @@ docker compose ps
 
 ## 必须保持的认证约束
 
+- 首位管理员仅在用户表为空时由 `.env` / 环境变量在服务监听之前创建；缺少有效邮箱或密码时拒绝启动。禁止恢复公开的 `/api/setup` 接口或网页初始化表单。
+- `AUTH_ADMIN_*` 仅用于初始化，不得在重启时覆盖、重置或提升已有用户的权限。初始密码不得保留在长期运行的应用配置中。
 - 角色为 `admin`、`developer`、`user`。权限与应用归属必须在后端校验，不能只隐藏前端按钮。
 - 开发者仅管理自己的应用和 Key；管理员可管理全部应用。第三方注册只能创建普通用户。
 - 控制台使用 HttpOnly Cookie；第三方会话使用 Bearer Token，不能用于控制台管理接口。
@@ -76,6 +86,9 @@ docker compose ps
 - 同一个数据卷只运行一个 Auth 实例；不要直接给当前 SQLite 部署增加多副本。
 - Docker 使用非 root 用户，前端构建和 Go 编译在多阶段构建中完成；宿主机无需安装 Go 或 Node.js。
 - Compose 默认只发布到 `127.0.0.1:8080`。公网部署设置实际 `AUTH_PUBLIC_URL`，通过 HTTPS 代理访问时启用 `AUTH_SECURE_COOKIE=true`。
-- 程序不会自动加载 `.env`，Docker Compose 会读取仓库根目录 `.env` 做变量替换；Docker 配置样例是 `.env.docker.example`。
+- 程序使用 godotenv 自动读取当前工作目录 `.env`，已有进程环境变量优先；dotenv 解析错误不得输出可能含密码的原始行。Docker Compose 读取根目录 `.env` 并注入 `AUTH_ADMIN_*` 等环境变量；Docker 配置样例是 `.env.docker.example`。
 - 不自动执行 `docker compose down -v`、删除用户数据卷或覆盖用户数据库。重建与升级必须保留数据卷；只允许清理本次验证创建且确定不含用户数据的临时测试卷。
 - 容器相关修改至少验证 Compose 配置、镜像构建、健康检查、静态资源和重建后的数据持久化；没有可用 Docker 时说明未验证项。
+- 发布工具只清理安装目录 `packages/` 中更早的托管安装包，保留当前和上一可回退版本；不得自动删除数据备份、用户下载、数据卷或其他 Docker 镜像。
+- 发布状态保存在 `.deployment/`，更新前停服备份并按不可变镜像 ID 回退；跨数据库结构版本不能自动降级。新增迁移时同时审查 `SchemaVersion`、镜像标签和发布工具的兼容检查。
+- 数据目录文件锁必须在接触数据库/主密钥前持有，关闭数据库后释放；不要删除锁文件或忽略锁失败。

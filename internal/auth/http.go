@@ -131,7 +131,6 @@ func (a *App) Handler() http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	m.HandleFunc("GET /api/status", a.status)
-	m.HandleFunc("POST /api/setup", a.setup)
 	m.HandleFunc("POST /api/auth/login", a.login)
 	m.HandleFunc("POST /api/auth/forgot", a.forgot)
 	m.HandleFunc("POST /api/auth/reset", a.reset)
@@ -193,7 +192,7 @@ func (a *App) Handler() http.Handler {
 				return
 			}
 		}
-		if r.Method == "POST" && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || r.URL.Path == "/api/password" || r.URL.Path == "/api/setup" || strings.HasPrefix(r.URL.Path, "/v1/")) {
+		if r.Method == "POST" && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || r.URL.Path == "/api/password" || strings.HasPrefix(r.URL.Path, "/v1/")) {
 			if a.limited(r) {
 				fail(w, 429, "请求过于频繁，请一分钟后重试")
 				return

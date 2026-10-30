@@ -11,9 +11,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
-RUN CGO_ENABLED=0 go build -trimpath -o /auth-server ./cmd/server
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-X authcenter/internal/auth.Version=${VERSION}" -o /auth-server ./cmd/server
 
 FROM alpine:3.22
+ARG VERSION=dev
+LABEL org.opencontainers.image.version=$VERSION \
+    io.authcenter.schema-version="1"
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 auth \
     && adduser -S -D -H -u 10001 -G auth auth \

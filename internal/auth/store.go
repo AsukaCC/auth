@@ -16,18 +16,25 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/sys/unix"
 )
 
 type Config struct {
-	DataDir, WebDir, PublicURL string
-	SecureCookie               bool
+	DataDir, WebDir, PublicURL           string
+	SecureCookie                         bool
+	AdminEmail, AdminName, AdminPassword string
 }
 type App struct {
-	db      *sql.DB
-	cfg     Config
-	cipher  cipher.AEAD
-	limitMu sync.Mutex
-	limits  map[string]bucket
+	db        *sql.DB
+	cfg       Config
+	cipher    cipher.AEAD
+	limitMu   sync.Mutex
+	limits    map[string]bucket
+	lock      *os.File
+	closeOnce sync.Once
+	closeErr  error
 }
 type bucket struct {
 	Count int
@@ -63,6 +70,22 @@ func New(cfg Config) (*App, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0700); err != nil {
 		return nil, err
 	}
+	// Lock before reading or creating the key/database. The OS releases it on exit;
+	// never unlink the lock file, which would allow locking a different inode.
+	lock, err := os.OpenFile(filepath.Join(cfg.DataDir, ".instance.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		lock.Close()
+		return nil, errors.New("数据目录已被其他实例占用，禁止同时运行多个实例")
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			lock.Close()
+		}
+	}()
 	keyPath := filepath.Join(cfg.DataDir, "master.key")
 	key, err := os.ReadFile(keyPath)
 	if os.IsNotExist(err) {
@@ -96,14 +119,75 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	var version int
+	if err = db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version > SchemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("数据库版本 %d 高于当前程序支持的 %d，拒绝不兼容回退", version, SchemaVersion)
+	}
 	if _, err = db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
 	}
+	// Existing version-0 databases use exactly this schema; no data rewrite.
+	if version == 0 {
+		if _, err = db.Exec("PRAGMA user_version=1"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	_ = os.Chmod(filepath.Join(cfg.DataDir, "auth.db"), 0600)
-	return &App{db: db, cfg: cfg, cipher: gcm, limits: map[string]bucket{}}, nil
+	password := cfg.AdminPassword
+	cfg.AdminPassword = ""
+	a := &App{db: db, cfg: cfg, cipher: gcm, limits: map[string]bucket{}, lock: lock}
+	if err := a.initializeAdmin(cfg.AdminEmail, cfg.AdminName, password); err != nil {
+		db.Close()
+		return nil, err
+	}
+	opened = true
+	return a, nil
 }
-func (a *App) Close() error { return a.db.Close() }
+
+func (a *App) initializeAdmin(email, name, password string) error {
+	var count int
+	if err := a.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+		return fmt.Errorf("check administrator initialization: %w", err)
+	}
+	// Initialization never resets or promotes accounts in an existing database.
+	if count > 0 {
+		return nil
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "管理员"
+	}
+	if !emailValid(email) {
+		return errors.New("首次启动必须配置有效的 AUTH_ADMIN_EMAIL")
+	}
+	if !validText(name, 80) {
+		return errors.New("AUTH_ADMIN_NAME 不能超过 80 字节")
+	}
+	if err := checkPassword(password); err != nil {
+		return errors.New("首次启动必须配置 AUTH_ADMIN_PASSWORD（10–72 字节）")
+	}
+	digest, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.New("无法生成管理员密码摘要")
+	}
+	_, err = a.db.Exec("INSERT INTO users(id,email,name,password,role,created_at) SELECT ?,?,?,?,'admin',? WHERE NOT EXISTS(SELECT 1 FROM users)", id(), email, name, string(digest), now())
+	if err != nil {
+		return errors.New("初始化管理员失败")
+	}
+	return nil
+}
+func (a *App) Close() error {
+	a.closeOnce.Do(func() { a.closeErr = errors.Join(a.db.Close(), a.lock.Close()) })
+	return a.closeErr
+}
 func token() string {
 	b := make([]byte, 32)
 	if _, e := rand.Read(b); e != nil {
