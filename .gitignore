@@ -1,0 +1,13 @@
+/data/
+/web/node_modules/
+/web/dist/
+/web/*.tsbuildinfo
+/auth-server
+.env
+.env.*
+!.env.example
+!.env.docker.example
+/backups/
+*.db
+*.db-shm
+*.db-wal
