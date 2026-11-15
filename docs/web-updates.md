@@ -60,6 +60,8 @@ SHA-256 用于检测内容变化；发行信任基于固定配置的 GitHub 仓�
 
 代理与 Auth 分属两个 Compose 项目。维护时用 `docker compose -f compose.deploy.yaml stop` 停止代理，会等待在途任务完成；不要在发布期间强制杀死代理。保留安装目录、`.deployment/`、`backups/` 和数据卷。
 
+Linux 上代理创建的部署状态、任务和备份属于 root，采用 0600/0700 私有权限。启用代理后的宿主机命令行维护请使用 `sudo ./authctl.sh status`、`sudo ./authctl.sh recover` 等；不要放宽这些文件权限。隔离发布测试同样以 `sudo python3 scripts/test_release.py <发行包>` 运行，确保能读取任务状态并清理本次测试目录。
+
 ## 管理 API
 
 两条接口仅接受有效的**管理员控制台 Cookie 会话**；开发者、普通用户和第三方 Bearer 会话均不可访问。沿用 Origin 检查与 POST 限流。

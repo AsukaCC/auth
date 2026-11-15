@@ -54,7 +54,10 @@ jobs:
         run: ./scripts/release.sh
       - name: Verify deployment, health recovery and webpage rollback
         if: matrix.arch == 'amd64'
-        run: python3 scripts/test_release.py dist/auth-center-$(cat VERSION)-amd64.tar.gz
+        # The agent writes private root-owned deployment state on Linux. Run
+        # the isolated test as the same server administrator for CLI assertions
+        # and cleanup; do not weaken production state/backup permissions.
+        run: sudo python3 scripts/test_release.py dist/auth-center-$(cat VERSION)-amd64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.arch }}
