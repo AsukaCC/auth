@@ -7,6 +7,7 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8080",
       "/v1": "http://127.0.0.1:8080",
       "^/health(?:z)?$": "http://127.0.0.1:8080",
+      "^/(?:robots\\.txt|sitemap\\.xml)$": "http://127.0.0.1:8080",
     },
   },
 });

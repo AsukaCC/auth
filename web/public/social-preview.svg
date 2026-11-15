@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse"><stop stop-color="#D5E6FF"/><stop offset=".5" stop-color="#EDF1FA"/><stop offset="1" stop-color="#DBF0F2"/></linearGradient>
+    <linearGradient id="blue" x1="118" y1="198" x2="290" y2="424" gradientUnits="userSpaceOnUse"><stop stop-color="#68BDFF"/><stop offset=".46" stop-color="#1689FA"/><stop offset="1" stop-color="#0758D8"/></linearGradient>
+    <linearGradient id="glass" x1="130" y1="210" x2="230" y2="340" gradientUnits="userSpaceOnUse"><stop stop-color="white" stop-opacity=".48"/><stop offset="1" stop-color="white" stop-opacity="0"/></linearGradient>
+  </defs>
+  <path fill="url(#bg)" d="M0 0H1200V630H0Z"/>
+  <circle cx="1060" cy="40" r="280" fill="white" fill-opacity=".22"/>
+  <circle cx="50" cy="630" r="200" fill="#A5C5FF" fill-opacity=".18"/>
+  <rect x="56" y="64" width="1088" height="502" rx="42" fill="white" fill-opacity=".66" stroke="white" stroke-width="2"/>
+  <text x="112" y="143" fill="#61748F" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="17" letter-spacing="4">IDENTITY &amp; ACCESS MANAGEMENT</text>
+  <rect x="112" y="218" width="188" height="188" rx="46" fill="url(#blue)"/>
+  <rect x="113" y="219" width="186" height="186" rx="45" stroke="white" stroke-opacity=".5" stroke-width="2"/>
+  <path d="M122 260C122 242 137 228 155 228H257C275 228 290 242 290 260V282C235 313 177 275 122 311V260Z" fill="url(#glass)"/>
+  <path d="M206 259L246 274V305C246 333 227 349 206 359C185 349 166 333 166 305V274L206 259Z" fill="white" fill-opacity=".08" stroke="white" stroke-width="8" stroke-linejoin="round"/>
+  <text x="352" y="292" fill="#152A47" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="76" font-weight="700" letter-spacing="-3">Auth Center</text>
+  <text x="356" y="353" fill="#415A79" font-family="PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="30">统一身份与访问管理</text>
+  <path d="M112 459H1088" stroke="#D3DEEC"/>
+  <text x="112" y="510" fill="#61748F" font-family="PingFang SC,Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="21">一个身份，连接每一个应用。</text>
+  <text x="1088" y="510" fill="#2878D6" font-family="-apple-system,BlinkMacSystemFont,Arial,sans-serif" font-size="17" text-anchor="end" letter-spacing="2">AUTH CENTER</text>
+</svg>

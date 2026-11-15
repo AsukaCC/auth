@@ -120,6 +120,17 @@ def main():
             assert api("/api/status")["version"] == base_version
             assert api("/healthz") == b""
             html = api("/").decode()
+            assert f'rel="canonical" href="http://127.0.0.1:{port}/"' in html
+            assert f'property="og:image" content="http://127.0.0.1:{port}/social-preview.png"' in html
+            assert "<!-- auth:seo -->" not in html
+            assert api("/favicon.ico")[:4] == b"\x00\x00\x01\x00"
+            assert api("/apple-touch-icon.png")[:8] == b"\x89PNG\r\n\x1a\n"
+            manifest = json.loads(api("/site.webmanifest"))
+            for icon in manifest["icons"]:
+                assert api(icon["src"])[:8] == b"\x89PNG\r\n\x1a\n"
+            assert api("/social-preview.png")[:8] == b"\x89PNG\r\n\x1a\n"
+            assert f"http://127.0.0.1:{port}/sitemap.xml" in api("/robots.txt").decode()
+            assert f"<loc>http://127.0.0.1:{port}/</loc>" in api("/sitemap.xml").decode()
             asset = re.search(r'src="([^"]+\.js)"', html).group(1)
             assert len(api(asset)) > 1000
             api("/api/auth/login", {"email": "release@example.test", "password": password})

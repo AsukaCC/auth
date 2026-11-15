@@ -376,6 +376,15 @@ function App() {
     new URLSearchParams(location.search).get("reset") || "",
   );
   const privileged = user?.role === "admin" || user?.role === "developer";
+  useEffect(() => {
+    const authTitles: Record<string, string> = { login: "登录", forgot: "找回密码", reset: "重置密码", appeal: "账户申诉" };
+    document.title = user
+      ? `${labels[page]} · Auth Center`
+      : `${authTitles[authMode] || "登录"} · Auth Center · 身份与访问管理`;
+    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (robots) robots.content = user || authMode !== "login" || resetToken.current || location.search
+      ? "noindex, nofollow, noarchive" : "index, follow";
+  }, [user?.id, page, authMode]);
   const notify = (s: string) => setToast(s);
   async function refresh() {
     const current: User = await api("/api/me");
@@ -540,9 +549,7 @@ function App() {
       <div className="auth-layout">
         <aside className="auth-story">
           <a className="brand" href="/">
-            <div className="brand-mark">
-              <Shield size={24} />
-            </div>
+            <img className="brand-mark" src="/brand-mark.svg" width="39" height="39" alt="" />
             <div className="brand-name">
               Auth Center<small>身份与访问管理</small>
             </div>
@@ -807,9 +814,7 @@ function App() {
           }}
           className="brand"
         >
-          <div className="brand-mark">
-            <Shield size={23} />
-          </div>
+          <img className="brand-mark" src="/brand-mark.svg" width="39" height="39" alt="" />
           <div className="brand-name">
             Auth Center<small>身份与访问管理</small>
           </div>

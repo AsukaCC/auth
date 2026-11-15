@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -135,6 +133,8 @@ func (a *App) health(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) Handler() http.Handler {
 	m := http.NewServeMux()
+	m.HandleFunc("GET /robots.txt", a.robots)
+	m.HandleFunc("GET /sitemap.xml", a.sitemap)
 	m.HandleFunc("GET /health", a.health)
 	m.HandleFunc("GET /api/health", a.health)
 	m.HandleFunc("GET /healthz", a.health)
@@ -178,23 +178,15 @@ func (a *App) Handler() http.Handler {
 	m.HandleFunc("POST /v1/session/heartbeat", a.thirdHeartbeat)
 	m.HandleFunc("GET /v1/session", a.thirdSession)
 	m.HandleFunc("POST /v1/auth/logout", a.thirdLogout)
-	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/v1/") {
-			fail(w, 404, "接口不存在")
-			return
-		}
-		path := filepath.Join(a.cfg.WebDir, filepath.Clean("/"+r.URL.Path))
-		if st, e := os.Stat(path); e == nil && !st.IsDir() {
-			http.ServeFile(w, r, path)
-			return
-		}
-		http.ServeFile(w, r, filepath.Join(a.cfg.WebDir, "index.html"))
-	})
+	m.HandleFunc("/", a.web)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
+		if r.URL.RawQuery != "" || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/health") {
+			w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && r.Method != "GET" && r.Method != "HEAD" {
 			if o := r.Header.Get("Origin"); o != "" {
 				u, e := url.Parse(o)

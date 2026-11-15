@@ -299,6 +299,14 @@ cd auth-center
 
 `make release` 现在同时输出同名 `.update.json` 更新清单，安装包附带独立代理镜像。推送更高的 `VERSION` 到 `main` 后，GitHub Actions 自动测试、构建两种架构并创建正式 GitHub Release；仅推送源码不会生成新版本。
 
+### 站点图标与 SEO
+
+浏览器标签页、Apple 桌面图标、Android/Maskable 图标和登录/控制台品牌标识统一使用蓝色玻璃盾牌，分享封面为 1200×630 PNG。图标源文件位于 `web/public/`；修改 SVG 后在 `web/` 执行 `npm ci && npm run icons` 重新生成 PNG/ICO（分享封面的中文渲染需要系统安装中文字体）。`site.webmanifest` 提供图标和站点信息，保持浏览器模式，不注册离线缓存或 Service Worker。
+
+生产服务直接在 HTML 中输出描述、Open Graph、Twitter Card、canonical 和 JSON-LD，爬虫无需执行 JavaScript。将 `AUTH_PUBLIC_URL` 设置为实际访问的根域名，例如 `https://auth.example.com`；canonical、分享图片绝对地址、`robots.txt` 的 Sitemap 地址和 `sitemap.xml` 都使用该配置，不采用客户端 Host/转发头。当前应用部署于域名根路径。
+
+公开登录首页可收录；站点地图仅列出首页。API、健康检查、包含查询参数（包括密码找回凭据）的页面和带控制台 Cookie 的 HTML 返回 `X-Robots-Tag: noindex`，管理界面/找回流程同时设置前端 robots 元信息。不存在的页面和资源返回真实 404，不再返回登录 HTML。搜索引擎策略不替代身份认证和权限校验。
+
 ### 备份与恢复
 
 完整备份需要同时包含数据库和 `master.key`。停服后导出数据卷，避免复制处于写入中的 SQLite 数据库：

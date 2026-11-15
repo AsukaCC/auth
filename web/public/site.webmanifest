@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Auth Center · 身份与访问管理",
+  "short_name": "Auth Center",
+  "description": "统一管理账户、应用、登录会话与访问权限。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#edf0f9",
+  "theme_color": "#edf0f9",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
