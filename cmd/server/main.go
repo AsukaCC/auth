@@ -32,6 +32,7 @@ func main() {
 		AdminEmail:    os.Getenv("AUTH_ADMIN_EMAIL"),
 		AdminName:     os.Getenv("AUTH_ADMIN_NAME"),
 		AdminPassword: os.Getenv("AUTH_ADMIN_PASSWORD"),
+		DeploySocket:  os.Getenv("AUTH_DEPLOY_SOCKET"),
 	})
 	if err != nil {
 		log.Fatal(err)

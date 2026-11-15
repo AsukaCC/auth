@@ -15,5 +15,6 @@ backups
 dist
 .deployment
 packages
+deploy-agent
 **/__pycache__
 web/*.tsbuildinfo

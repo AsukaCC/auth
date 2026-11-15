@@ -1,0 +1,14 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/deploy-agent/ ./cmd/deploy-agent/
+COPY internal/deployagent/ ./internal/deployagent/
+COPY internal/deployprotocol/ ./internal/deployprotocol/
+RUN CGO_ENABLED=0 go build -trimpath -o /deploy-agent ./cmd/deploy-agent
+
+# Only this independent service receives Docker access.
+FROM docker:28-cli
+COPY --from=builder /deploy-agent /usr/local/bin/auth-deploy-agent
+WORKDIR /deployment
+ENTRYPOINT ["/usr/local/bin/auth-deploy-agent"]

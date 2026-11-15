@@ -295,7 +295,9 @@ cd auth-center
 - 数据目录有进程级文件锁，退出后由系统释放；不要手工删除 `.instance.lock`。同一数据目录禁止多实例并行访问。
 - `install` 检测已有实例/数据卷后拒绝重复安装；已有源码 Compose 部署可以在**原部署目录**解压发布包内容后执行 `./authctl.sh adopt`，纳入版本管理。需先启动原部署，默认项目名 `auth-center`，标准数据卷 `auth-center_auth-data`，原镜像保留为 `legacy` 回退点。自定义 Compose 项目首次接管时通过 `AUTH_PROJECT_NAME` 指定，之后固定记录，不要切换安装目录。
 
-所有发布操作在本机命令行执行，需要服务器 Docker 权限；网页仅显示版本，不提供挂载 Docker Socket 的高权限更新接口。当前为短暂停服更新，并不提供无停机升级。
+管理员可在「系统更新」页面检查正式发布、提交更新任务和兼容回退。需先在服务器启用独立部署代理，配置、发布流程、API 权限和恢复方式见 [网页更新指南](docs/web-updates.md)。Auth 容器不挂载 Docker Socket；高权限部署操作由独立代理完成。更新仍会短暂停服。
+
+`make release` 现在同时输出同名 `.update.json` 更新清单，安装包附带独立代理镜像。推送更高的 `VERSION` 到 `main` 后，GitHub Actions 自动测试、构建两种架构并创建正式 GitHub Release；仅推送源码不会生成新版本。
 
 ### 备份与恢复
 

@@ -1,0 +1,89 @@
+name: Release
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: npm ci && npm run build
+        working-directory: web
+      - name: Validate release version
+        shell: bash
+        run: |
+          version=$(cat VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          fi
+      - run: docker compose --env-file .env.docker.example config --quiet
+      - run: docker compose --env-file .env.docker.example -f compose.deploy.yaml config --quiet
+  package:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - name: Build immutable release artifacts
+        env:
+          AUTH_RELEASE_PLATFORM: linux/${{ matrix.arch }}
+        run: ./scripts/release.sh
+      - name: Verify deployment, health recovery and webpage rollback
+        if: matrix.arch == 'amd64'
+        run: python3 scripts/test_release.py dist/auth-center-$(cat VERSION)-amd64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.update.json
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Publish without overwriting existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          version=$(cat VERSION)
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo 'This version is already published. Increment VERSION.' >&2
+            exit 1
+          fi
+          gh release create "v$version" dist/*.tar.gz dist/*.update.json \
+            --target "$GITHUB_SHA" --title "Auth Center $version" --generate-notes --latest

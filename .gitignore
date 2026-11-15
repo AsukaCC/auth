@@ -12,6 +12,7 @@
 /.deployment/
 /packages/
 /RELEASE
+/deploy-agent/
 __pycache__/
 *.db
 *.db-shm

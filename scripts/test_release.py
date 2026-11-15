@@ -53,9 +53,14 @@ def main():
         (app / ".env").write_text(
             f"AUTH_PORT={port}\nAUTH_PUBLIC_URL=http://127.0.0.1:{port}\n"
             f"AUTH_ADMIN_EMAIL=release@example.test\nAUTH_ADMIN_PASSWORD='{password}'\n"
+            "AUTH_DEPLOY_SOCKET=/run/auth-deploy/agent.sock\n"
+            f"AUTH_PROJECT_NAME={project}\n"
         )
         (app / ".env").chmod(0o600)
         env = {**os.environ, "AUTH_PROJECT_NAME": project}
+        agent_id = (app / "deploy-agent/image.id").read_text().strip()
+        agent_env = {**env, "AUTH_DEPLOY_AGENT_IMAGE": agent_id}
+        agent_compose = ["docker", "compose", "--env-file", str(app / ".env"), "-f", str(app / "compose.deploy.yaml")]
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
         def ctl(action, expected=0):
@@ -118,6 +123,16 @@ def main():
             asset = re.search(r'src="([^"]+\.js)"', html).group(1)
             assert len(api(asset)) > 1000
             api("/api/auth/login", {"email": "release@example.test", "password": password})
+            run("docker", "load", "-i", str(app / "deploy-agent/image.tar"))
+            run(*agent_compose, "up", "-d", "--no-build", "--pull", "never", cwd=app, env=agent_env)
+            for attempt in range(30):
+                deployment = api("/api/admin/deployment")
+                if deployment["connected"]:
+                    break
+                time.sleep(1)
+            assert deployment["connected"], deployment
+            assert deployment["current"]["health"] == "healthy"
+            print("PASS independent agent connection from non-root Auth via protected socket", flush=True)
             api("/api/applications", {"name": "升级持久化测试", "description": "保留应用与主密钥"})
             saved_apps = api("/api/applications")
             key_hash = run("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
@@ -139,7 +154,27 @@ def main():
             assert state()[0] == second and state()[2] == first
             kept = {p.stem for p in (app / "packages").glob("*.tar")}
             assert kept == {first, second}, f"unexpected retained packages: {kept}, state: {state()}"
-            ctl("rollback")
+            deployment = api("/api/admin/deployment")
+            assert deployment["rollback_allowed"]
+            request = {"action": "rollback", "expected_image": deployment["current"]["id"],
+                       "target_image": deployment["previous"]["id"], "idempotency_key": secrets.token_hex(16),
+                       "password": password}
+            job = api("/api/admin/deployment", request)
+            for attempt in range(150):
+                deployment = api("/api/admin/deployment")
+                if deployment["job"] and deployment["job"]["id"] == job["id"] and deployment["job"]["status"] in {"failed", "succeeded"}:
+                    break
+                time.sleep(1)
+            assert deployment["job"]["status"] == "succeeded", deployment
+            assert api("/api/admin/deployment", request)["id"] == job["id"], "duplicate task executed again"
+            run(*agent_compose, "restart", cwd=app, env=agent_env)
+            for attempt in range(30):
+                deployment = api("/api/admin/deployment")
+                if deployment["connected"]:
+                    break
+                time.sleep(1)
+            assert deployment["job"]["id"] == job["id"] and deployment["job"]["status"] == "succeeded"
+            print("PASS webpage rollback, independent agent survival, idempotency and persisted task", flush=True)
             assert state()[0] == first and state()[2] == second
             assert api("/api/applications") == saved_apps
             assert key_hash == run("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
@@ -182,6 +217,7 @@ def main():
             print("PASS adoption and rollback to original image", flush=True)
         finally:
             # The project name was randomly created above, never a user project.
+            run(*agent_compose, "down", cwd=app, env=agent_env, ok=False)
             run("docker", "compose", "-p", project, "--env-file", str(app / ".env"),
                 "-f", str(app / "compose.yaml"), "down", "-v", ok=False)
             for image in reversed(images):

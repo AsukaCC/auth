@@ -160,6 +160,8 @@ func (a *App) Handler() http.Handler {
 	m.HandleFunc("POST /api/keys", a.wrap(a.createKey, "developer"))
 	m.HandleFunc("DELETE /api/keys/{id}", a.wrap(a.revokeKey, "developer"))
 	m.HandleFunc("GET /api/admin/users", a.wrap(a.users, "admin"))
+	m.HandleFunc("GET /api/admin/deployment", a.wrap(a.deployment, "admin"))
+	m.HandleFunc("POST /api/admin/deployment", a.wrap(a.deploymentAction, "admin"))
 	m.HandleFunc("GET /api/admin/analytics", a.wrap(a.adminAnalytics, "admin"))
 	m.HandleFunc("GET /api/admin/directory", a.wrap(a.userDirectory, "admin"))
 	m.HandleFunc("GET /api/admin/users/{id}", a.wrap(a.adminUserDetail, "admin"))
@@ -206,7 +208,7 @@ func (a *App) Handler() http.Handler {
 				return
 			}
 		}
-		if r.Method == "POST" && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || r.URL.Path == "/api/password" || strings.HasPrefix(r.URL.Path, "/v1/")) {
+		if r.Method == "POST" && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || r.URL.Path == "/api/password" || r.URL.Path == "/api/admin/deployment" || strings.HasPrefix(r.URL.Path, "/v1/")) {
 			if a.limited(r) {
 				fail(w, 429, "请求过于频繁，请一分钟后重试")
 				return

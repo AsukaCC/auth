@@ -25,6 +25,7 @@ type Config struct {
 	DataDir, WebDir, PublicURL           string
 	SecureCookie                         bool
 	AdminEmail, AdminName, AdminPassword string
+	DeploySocket                         string
 }
 type App struct {
 	db        *sql.DB

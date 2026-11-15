@@ -1,4 +1,5 @@
 export const actionLabel: Record<string, string> = {
+  "deployment.request": "请求系统部署",
   "auth.login": "账户登录",
   "auth.register": "新账户注册",
   "password.change": "修改密码",

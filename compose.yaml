@@ -14,11 +14,13 @@ services:
       AUTH_WEB_DIR: /app/web/dist
       AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-http://127.0.0.1:8080}"
       AUTH_SECURE_COOKIE: "${AUTH_SECURE_COOKIE:-false}"
+      AUTH_DEPLOY_SOCKET: "${AUTH_DEPLOY_SOCKET:-}"
       AUTH_ADMIN_EMAIL: "${AUTH_ADMIN_EMAIL:-}"
       AUTH_ADMIN_NAME: "${AUTH_ADMIN_NAME:-管理员}"
       AUTH_ADMIN_PASSWORD: "${AUTH_ADMIN_PASSWORD:-}"
     volumes:
       - auth-data:/data
+      - auth-control:/run/auth-deploy:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -35,3 +37,4 @@ services:
 
 volumes:
   auth-data:
+  auth-control:

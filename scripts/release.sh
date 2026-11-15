@@ -15,6 +15,7 @@ WORK=$(mktemp -d "$ROOT/dist/.release.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 BUNDLE="$WORK/auth-center"
 mkdir -p "$BUNDLE/packages"
+mkdir -p "$BUNDLE/deploy-agent"
 IMAGE="auth-center:$VERSION-$ARCH"
 docker build --platform "$PLATFORM" --build-arg "VERSION=$VERSION" -t "$IMAGE" .
 docker save -o "$BUNDLE/packages/$VERSION.tar" "$IMAGE"
@@ -25,10 +26,20 @@ SCHEMA=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.sc
 [ "$SCHEMA" = 2 ] || { echo '镜像结构版本与发布工具不一致' >&2; exit 1; }
 printf '%s\n%s\n%s\n' "$ID" "$HASH" "$SCHEMA" > "$BUNDLE/packages/$VERSION.meta"
 printf '%s\n' "$VERSION" > "$BUNDLE/RELEASE"
-cp authctl.sh compose.yaml .env.docker.example README.md "$BUNDLE/"
+AGENT_IMAGE="auth-center-deploy-agent:$VERSION-$ARCH"
+docker build --platform "$PLATFORM" -f Dockerfile.agent -t "$AGENT_IMAGE" .
+docker save -o "$BUNDLE/deploy-agent/image.tar" "$AGENT_IMAGE"
+docker image inspect --format '{{.Id}}' "$AGENT_IMAGE" > "$BUNDLE/deploy-agent/image.id"
+cp authctl.sh compose.yaml compose.deploy.yaml .env.docker.example README.md "$BUNDLE/"
 cp -R docs "$BUNDLE/"
 chmod 755 "$BUNDLE/authctl.sh"
 # macOS resource-fork sidecars are not installation packages and must not ship.
 COPYFILE_DISABLE=1 tar -czf "$WORK/release.tar.gz" -C "$WORK" auth-center
 mv "$WORK/release.tar.gz" "$OUT"
+if command -v sha256sum >/dev/null 2>&1; then BUNDLE_HASH=$(sha256sum "$OUT" | awk '{print $1}');
+else BUNDLE_HASH=$(shasum -a 256 "$OUT" | awk '{print $1}'); fi
+SIZE=$(wc -c < "$OUT" | tr -d ' ')
+printf '{"format":1,"version":"%s","schema":%s,"platform":"linux-%s","bundle":"auth-center-%s-%s.tar.gz","sha256":"%s","size":%s}\n' \
+  "$VERSION" "$SCHEMA" "$ARCH" "$VERSION" "$ARCH" "$BUNDLE_HASH" "$SIZE" > "$OUT.update.tmp"
+mv "$OUT.update.tmp" "$ROOT/dist/auth-center-$VERSION-$ARCH.update.json"
 echo "已生成：${OUT}（${PLATFORM}）。发布包不包含 .env、数据库或主密钥。"

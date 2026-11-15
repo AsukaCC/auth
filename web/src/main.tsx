@@ -32,11 +32,13 @@ import {
   RefreshCw,
   Layers3,
   Settings2,
+  DownloadCloud,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import "./style.css";
 import { AdminInsights, ProfileEditor } from "./insights";
 import { actionLabel } from "./audit";
+import { Deployment } from "./deployment";
 
 type User = {
   id: string;
@@ -105,6 +107,7 @@ type Page =
   | "security"
   | "profile"
   | "analytics"
+  | "deployment"
   | "applications"
   | "keys"
   | "users"
@@ -119,6 +122,7 @@ const labels: Record<Page, string> = {
   security: "账户安全",
   profile: "个人资料",
   analytics: "用户分析",
+  deployment: "系统更新",
   applications: "应用管理",
   keys: "API 密钥",
   users: "用户与权限",
@@ -133,6 +137,7 @@ const icons: Record<Page, React.ElementType> = {
   security: ShieldCheck,
   profile: Fingerprint,
   analytics: Users,
+  deployment: DownloadCloud,
   applications: AppWindow,
   keys: KeyRound,
   users: Users,
@@ -761,7 +766,7 @@ function App() {
     "profile",
     ...(privileged ? (["applications", "keys"] as Page[]) : []),
     ...(user.role === "admin"
-      ? (["analytics", "users", "mail", "appeals"] as Page[])
+      ? (["analytics", "users", "mail", "appeals", "deployment"] as Page[])
       : []),
     "audit",
     "docs",
@@ -943,6 +948,7 @@ function App() {
                     security: "管理密码和两步验证，为你的账户增加一道保护。",
                     profile: "完善个人信息，让每一次连接更有温度。",
                     analytics: "了解用户活跃、应用使用与每一位用户的身份画像。",
+                    deployment: "管理正式版本更新、服务健康与兼容回退。",
                     applications: "连接你的业务应用，统一管理注册与登录。",
                     keys: "为应用分配最小必要的 API 权限，安全调用身份服务。",
                     users: "管理账户状态与角色，明确每个人的访问边界。",
@@ -1506,6 +1512,7 @@ function App() {
             />
           )}
           {page === "profile" && <ProfileEditor api={api} onSaved={refresh} />}
+          {page === "deployment" && user.role === "admin" && <Deployment api={api} tfa={user.tfa} />}
           {page === "analytics" && user.role === "admin" && (
             <AdminInsights
               api={api}

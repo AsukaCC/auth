@@ -93,11 +93,12 @@ prune_packages() {
 }
 load_release() {
   [ -f "$ROOT/RELEASE" ] || die "缺少 RELEASE，请解压完整发布包。"
-  TARGET=$(cat "$ROOT/RELEASE")
+  TARGET=${AUTH_TARGET_VERSION:-$(cat "$ROOT/RELEASE")}
   valid_version "$TARGET" || die "发布版本格式无效。"
   meta="$ROOT/packages/$TARGET.meta"
   [ -f "$meta" ] && [ -f "$ROOT/packages/$TARGET.tar" ] || die "安装包不完整。"
   TARGET_ID=$(field "$meta" 1)
+  [ -z "${AUTH_EXPECT_TARGET_ID:-}" ] || [ "$TARGET_ID" = "$AUTH_EXPECT_TARGET_ID" ] || die "目标镜像已变化，服务未变更。"
   expected=$(field "$meta" 2)
   schema=$(field "$meta" 3)
   printf '%s\n' "$TARGET_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || die "镜像 ID 无效。"
@@ -143,8 +144,7 @@ if [ "$ACTION" = status ]; then
   exit 0
 fi
 [ -f "$ROOT/.env" ] || die "请先复制 .env.docker.example 为 .env 并填写配置。"
-if [ "$ACTION" = recover ]; then recover || die "恢复失败，请检查容器日志。"; exit 0; fi
-[ ! -f "$STATE/pending" ] || die "存在中断操作，请先执行 recover。"
+[ "$ACTION" = recover ] || [ ! -f "$STATE/pending" ] || die "存在中断操作，请先执行 recover。"
 
 containers=$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.service=auth)
 [ "$(printf '%s\n' "$containers" | awk 'NF {n++} END {print n+0}')" -le 1 ] || die "检测到多实例，请先恢复单实例部署。"
@@ -153,8 +153,10 @@ if [ -n "$containers" ]; then
   mounted=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$containers")
   [ "$mounted" = "$VOLUME" ] || die "数据卷与标准部署不一致，拒绝自动替换。"
   actual_id=$(docker inspect --format '{{.Image}}' "$containers")
-  [ -z "$CURRENT" ] || [ "$actual_id" = "$CURRENT_ID" ] || die "运行镜像与发布记录不一致，请先核对手工部署变更。"
+  [ "$ACTION" = recover ] || [ -z "$CURRENT" ] || [ "$actual_id" = "$CURRENT_ID" ] || die "运行镜像与发布记录不一致，请先核对手工部署变更。"
 fi
+[ -z "${AUTH_EXPECT_CURRENT_ID:-}" ] || [ "${actual_id:-}" = "$AUTH_EXPECT_CURRENT_ID" ] || die "当前镜像已变化，操作未执行。"
+if [ "$ACTION" = recover ]; then recover || die "恢复失败，请检查容器日志。"; exit 0; fi
 case "$ACTION" in
   install)
     [ -z "$CURRENT" ] && [ -z "$containers" ] || die "已安装，请使用 update，不能重复安装。"
@@ -183,6 +185,7 @@ case "$ACTION" in
     ;;
   rollback)
     [ -n "$PREVIOUS" ] || die "没有可回退版本。"
+    [ -z "${AUTH_EXPECT_PREVIOUS_ID:-}" ] || [ "$PREVIOUS_ID" = "$AUTH_EXPECT_PREVIOUS_ID" ] || die "可回退镜像已变化，操作未执行。"
     TARGET=$PREVIOUS; TARGET_ID=$PREVIOUS_ID
     docker image inspect "$TARGET_ID" >/dev/null || die "回退镜像不存在，请重新导入对应安装包。"
     ;;
