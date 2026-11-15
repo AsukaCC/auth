@@ -68,12 +68,25 @@ func (a *App) finishLogin(w http.ResponseWriter, r *http.Request, u User, appID 
 	if cookie {
 		ttl = 7 * 24 * 3600
 	}
-	_, err := a.db.Exec("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?)", sid, u.ID, appID, hash(raw), ip(r), r.UserAgent(), now(), now(), now()+ttl)
+	tx, err := a.db.Begin()
 	if err != nil {
 		fail(w, 500, "无法创建会话")
 		return
 	}
-	a.audit(u.ID, "auth.login", appID, ip(r))
+	defer tx.Rollback()
+	at := now()
+	_, err = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?)", sid, u.ID, appID, hash(raw), ip(r), r.UserAgent(), at, at, at+ttl)
+	if err != nil {
+		fail(w, 500, "无法创建会话")
+		return
+	}
+	if err = recordActivity(tx, u.ID, appID, at, true); err == nil {
+		_, err = tx.Exec("INSERT INTO audit VALUES(?,?,?,?,?,?)", id(), u.ID, "auth.login", appID, ip(r), at)
+	}
+	if err != nil || tx.Commit() != nil {
+		fail(w, 500, "无法创建会话")
+		return
+	}
 	if cookie {
 		a.setCookie(w, raw, int(ttl))
 		jsonOut(w, 200, map[string]any{"user": u})
@@ -88,7 +101,31 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request, s *session) {
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) heartbeat(w http.ResponseWriter, r *http.Request, s *session) {
-	_, _ = a.db.Exec("UPDATE sessions SET last_seen=? WHERE id=?", now(), s.ID)
+	tx, err := a.db.Begin()
+	if err != nil {
+		fail(w, 500, "更新活跃状态失败")
+		return
+	}
+	defer tx.Rollback()
+	at := now()
+	res, err := tx.Exec("UPDATE sessions SET last_seen=? WHERE id=? AND expires_at>? AND EXISTS(SELECT 1 FROM users WHERE id=? AND disabled=0)", at, s.ID, at, s.UserID)
+	if err != nil {
+		fail(w, 500, "更新活跃状态失败")
+		return
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		fail(w, 500, "更新活跃状态失败")
+		return
+	}
+	if n != 1 {
+		fail(w, 401, "会话已失效")
+		return
+	}
+	if err = recordActivity(tx, s.UserID, s.AppID, at, false); err != nil || tx.Commit() != nil {
+		fail(w, 500, "更新活跃状态失败")
+		return
+	}
 	jsonOut(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) sessions(w http.ResponseWriter, r *http.Request, s *session) {

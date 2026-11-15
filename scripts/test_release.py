@@ -44,7 +44,8 @@ def main():
             archive.extractall(root, filter="data")
         app = root / "auth-center"
         base_version = (app / "RELEASE").read_text().strip()
-        base_id = (app / "packages" / f"{base_version}.meta").read_text().splitlines()[0]
+        base_meta = (app / "packages" / f"{base_version}.meta").read_text().splitlines()
+        base_id, base_schema = base_meta[0], base_meta[2]
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -105,7 +106,7 @@ def main():
             package = app / "packages" / f"{version}.tar"
             run("docker", "save", "-o", str(package), tag)
             checksum = hashlib.sha256(package.read_bytes()).hexdigest()
-            (app / "packages" / f"{version}.meta").write_text(f"{image_id}\n{checksum}\n1\n")
+            (app / "packages" / f"{version}.meta").write_text(f"{image_id}\n{checksum}\n{base_schema}\n")
             (app / "RELEASE").write_text(version + "\n")
             return image_id
 

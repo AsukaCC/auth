@@ -119,23 +119,33 @@ func (a *App) wrap(h handler, role string) http.HandlerFunc {
 func (a *App) setCookie(w http.ResponseWriter, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: "auth_session", Value: value, Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookie, SameSite: http.SameSiteStrictMode, MaxAge: maxAge})
 }
+func (a *App) health(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := a.db.PingContext(ctx); err != nil {
+		fail(w, http.StatusServiceUnavailable, "服务暂不可用")
+		return
+	}
+	if r.URL.Path == "/healthz" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	jsonOut(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (a *App) Handler() http.Handler {
 	m := http.NewServeMux()
-	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if err := a.db.PingContext(ctx); err != nil {
-			fail(w, http.StatusServiceUnavailable, "服务暂不可用")
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+	m.HandleFunc("GET /health", a.health)
+	m.HandleFunc("GET /api/health", a.health)
+	m.HandleFunc("GET /healthz", a.health)
 	m.HandleFunc("GET /api/status", a.status)
 	m.HandleFunc("POST /api/auth/login", a.login)
 	m.HandleFunc("POST /api/auth/forgot", a.forgot)
 	m.HandleFunc("POST /api/auth/reset", a.reset)
 	m.HandleFunc("POST /api/auth/appeal", a.appeal)
 	m.HandleFunc("GET /api/me", a.wrap(a.me, ""))
+	m.HandleFunc("GET /api/profile", a.wrap(a.profile, ""))
+	m.HandleFunc("PUT /api/profile", a.wrap(a.updateProfile, ""))
 	m.HandleFunc("POST /api/auth/logout", a.wrap(a.logout, ""))
 	m.HandleFunc("POST /api/heartbeat", a.wrap(a.heartbeat, ""))
 	m.HandleFunc("GET /api/sessions", a.wrap(a.sessions, ""))
@@ -150,6 +160,10 @@ func (a *App) Handler() http.Handler {
 	m.HandleFunc("POST /api/keys", a.wrap(a.createKey, "developer"))
 	m.HandleFunc("DELETE /api/keys/{id}", a.wrap(a.revokeKey, "developer"))
 	m.HandleFunc("GET /api/admin/users", a.wrap(a.users, "admin"))
+	m.HandleFunc("GET /api/admin/analytics", a.wrap(a.adminAnalytics, "admin"))
+	m.HandleFunc("GET /api/admin/directory", a.wrap(a.userDirectory, "admin"))
+	m.HandleFunc("GET /api/admin/users/{id}", a.wrap(a.adminUserDetail, "admin"))
+	m.HandleFunc("PUT /api/admin/users/{id}/annotations", a.wrap(a.updateAnnotations, "admin"))
 	m.HandleFunc("PATCH /api/admin/users/{id}", a.wrap(a.updateUser, "admin"))
 	m.HandleFunc("GET /api/admin/mail", a.wrap(a.getMail, "admin"))
 	m.HandleFunc("PUT /api/admin/mail", a.wrap(a.putMail, "admin"))

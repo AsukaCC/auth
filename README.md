@@ -21,7 +21,7 @@ cp .env.example .env
  npm run dev
 ```
 
-在 `.env` 中填写 `AUTH_ADMIN_EMAIL`、`AUTH_ADMIN_PASSWORD`，可选填写 `AUTH_ADMIN_NAME`，再启动服务。访问 http://127.0.0.1:5173 ，使用配置的管理员账户登录。开发服务器将 `/api` 和 `/v1` 转发到 Go 服务。使用其他地址时，设置 `AUTH_PUBLIC_URL` 为浏览器实际访问的完整地址。
+在 `.env` 中填写 `AUTH_ADMIN_EMAIL`、`AUTH_ADMIN_PASSWORD`，可选填写 `AUTH_ADMIN_NAME`，再启动服务。访问 http://127.0.0.1:5173 ，使用配置的管理员账户登录。开发服务器将 `/api`、`/v1`、`/health` 和 `/healthz` 转发到 Go 服务。使用其他地址时，设置 `AUTH_PUBLIC_URL` 为浏览器实际访问的完整地址。
 
 ## 管理员初始化
 
@@ -37,6 +37,8 @@ cp .env.example .env
 
 ## 功能
 
+- 个人资料：姓名、电话（未验证）、组织、部门、职位、地区、简介、语言和时区偏好；本人编辑、管理员查看。资料与管理员内部标签使用版本检查防止并发覆盖。
+- 管理员用户分析：独立用户在线、日/7 日/30 日活跃、登录/新增趋势、应用分布、角色与 2FA 构成；支持分页搜索和个人用户详情、内部标签与备注。统计按 UTC 自然日，心跳不等于实际停留时长。
 - 管理员：用户角色与停用、第三方 SMTP 邮件配置和测试、找回申诉、全局审计。
 - 开发者：创建自己的应用，为应用签发、查看与撤销 API Key。管理员可管理所有应用。
 - 普通用户：密码修改、TOTP 验证器绑定与关闭、一次性备用码、查看并撤销自己的应用登录会话。
@@ -47,7 +49,57 @@ cp .env.example .env
 
 密码用 bcrypt 保存；API Key、会话 Token、恢复 Token 和备用码只保存 SHA-256 摘要。SMTP 密码和 TOTP 密钥用 AES-256-GCM 加密。Cookie 为 HttpOnly、SameSite=Strict；写接口检查 Origin；认证和安全验证请求有 IP 频率限制；6 位 TOTP 验证码防重放。
 
+## 公开健康查询
+
+以下接口公开访问，无需登录 Cookie、`X-API-Key` 或 Bearer Token，也无需请求体：
+
+| 端点 | 正常响应 | 数据库不可用 |
+| --- | --- | --- |
+| `GET /health` | HTTP 200，`{"status":"ok"}` | HTTP 503，`{"error":"服务暂不可用"}` |
+| `GET /api/health` | 与 `/health` 相同，便于通过 API 路径查询 | 与 `/health` 相同 |
+| `GET /healthz` | HTTP 204，无响应体，供容器探针使用 | HTTP 503，`{"error":"服务暂不可用"}` |
+
+接口检查服务及 SQLite 数据库连接，数据库检查超时为 2 秒；不检查 SMTP 送达或其他外部服务，不返回数据库错误详情。响应使用 `Cache-Control: no-store`。
+
+```sh
+# 查看健康状态及 HTTP 状态码；生产环境替换为实际服务地址
+curl -i http://127.0.0.1:8080/health
+
+# 通过 API 查询，非 2xx 状态时 curl 返回非零退出码
+curl --fail-with-body http://127.0.0.1:8080/api/health
+```
+
+同源前端可直接查询（本地开发时也支持 Vite 代理）：
+
+```js
+try {
+  const response = await fetch('/api/health', { credentials: 'omit', cache: 'no-store' });
+  const health = await response.json();
+  if (!response.ok) throw new Error(health.error || '健康检查失败');
+  console.log(health.status); // ok
+} catch (error) {
+  console.error('服务不可用或网络连接失败', error);
+}
+```
+
 ## 第三方接入
+
+新增控制台 API（均使用 HttpOnly Cookie；第三方 Bearer 不能访问）：
+
+| 端点 | 权限 | 请求 / 响应约定 |
+| --- | --- | --- |
+| `GET /api/profile` | 本人 | 独立自述资料，含 `revision`、`updated_at` |
+| `PUT /api/profile` | 本人 | `name`、`phone`、`organization`、`department`、`job_title`、`location`、`bio`、`locale`、`time_zone` 和 `expected_revision`；整份替换，名称必填 |
+| `GET /api/admin/analytics` | 管理员 | 当前快照的 `summary`、30 日 `days`、前 20 应用 `apps`、角色 `roles`、`generated_at`、`timezone: UTC` |
+| `GET /api/admin/directory` | 管理员 | `q` 搜索姓名/邮箱/组织/部门/标签；`role=admin/developer/user`，`state=online/enabled/disabled`；`page` 从 1 开始，固定每页 25；返回 `items`、`total`、`page`、`page_size` |
+| `GET /api/admin/users/{id}` | 管理员 | 用户、资料、内部标签、30 日统计、最多 50 会话和 50 操作；不包含认证秘密 |
+| `PUT /api/admin/users/{id}/annotations` | 管理员 | `tags` 数组、`notes`、`expected_revision`；最多 12 标签，每个 48 字节，备注最多 2000 字节 |
+
+资料字段长度上限按 UTF-8 字节计算：姓名 80、电话 32（数字与 `+() .-`）、组织/地区 160、部门/职位 120、简介 1000；语言为例如 `zh-CN`、`en-US` 的语言标记，时区使用例如 `Asia/Shanghai` 的 IANA 名称。偏好作为资料保存，不改变当前中文界面或 UTC 统计口径。初次 `revision=0`，保存后递增；缺少 `expected_revision` 返回 400，版本冲突返回 409，请重新获取资料后保存。电话未经验证，不参与登录或找回。
+
+资料和内部标签不会扩展第三方 `user` 响应，也不改变角色权限；提交 `role`、`email` 等未声明资料字段返回 400。`/api/admin/users` 旧列表保留兼容，前端改用分页目录。活跃记录由成功登录及有效心跳写入，注销后保留；旧库仅根据现存审计与会话回填，缺失历史不会伪造。
+
+功能核查和未实现项见 [功能核查](docs/function-review.md)；负载均衡、多实例与跨地域数据一致性方案见 [部署演进](docs/architecture.md)。当前仍仅支持单 SQLite Auth 实例。
 
 先由管理员将账户授予“开发者”角色，再创建应用与 API Key。Key 的完整值仅在创建时显示，必须存放在应用服务端。
 
@@ -237,7 +289,8 @@ cd auth-center
 - 更新先校验镜像和包摘要、记录操作状态，停服备份整个数据卷，再启动新版本并等待健康检查。新版本失败时尝试自动切回原镜像；失败操作返回非零退出码。
 - **安装目录的 `packages/` 只保留当前与上一可回退版本**。成功更新或回退后清理更早的托管镜像包；重复 `update` 相同版本不会重新安装。不要把用户文件放入 `packages/`。源码端 `dist/` 的发行存档、外部下载目录、Docker 缓存及数据备份不会被自动删除。
 - `backups/` 中的数据库、WAL 和主密钥备份采用私有权限单独保留，请定期转存到安全位置并按自己的保留周期清理。它们不属于旧安装包。
-- 回退切换镜像并保留当前数据库，包括更新之后新建的账户与会话，不恢复旧备份、不丢弃新数据。目前仅支持结构版本 `1` 内的更新与回退；跨结构更新需要专门的迁移方案。程序会给旧数据库补记版本 `1`，遇到更高数据库版本会拒绝启动。
+- 回退切换镜像并保留当前数据库，包括更新之后新建的账户与会话，不恢复旧备份、不丢弃新数据。当前结构版本为 `2`：启动时事务性创建资料、内部标签、每日活跃表和索引，从旧结构 `0/1` 的保留审计与会话回填统计；重复启动不重复计数，密码、会话和主密钥保留。遇到更高数据库版本会拒绝启动。
+- **结构 1 → 2 的发布升级须显式执行 `AUTH_ALLOW_SCHEMA_UPGRADE=true ./authctl.sh update`（接管旧部署时用 `adopt`）**，工具仍先停服备份，再写入 `.deployment/schema-floor` 保护记录并启动迁移。升级后不可回退结构 1 镜像。迁移期间健康失败或进程中断，`recover` 只尝试向前启动兼容的新镜像，失败保留记录和备份；禁止自动降级、自动覆盖数据库恢复旧备份。相同结构版本内仍支持自动恢复与回退。请保留 `.deployment/` 的结构保护记录。
 - `.deployment/` 保存当前/上一镜像的不可变 ID、各版本 Compose 快照和操作记录；请保留。进程中断后执行 `./authctl.sh recover`。若操作锁仍存在，先确认没有发布命令在运行，再执行 `rmdir .deployment/operation.lock` 后重试；不要删除整个 `.deployment`。
 - 数据目录有进程级文件锁，退出后由系统释放；不要手工删除 `.instance.lock`。同一数据目录禁止多实例并行访问。
 - `install` 检测已有实例/数据卷后拒绝重复安装；已有源码 Compose 部署可以在**原部署目录**解压发布包内容后执行 `./authctl.sh adopt`，纳入版本管理。需先启动原部署，默认项目名 `auth-center`，标准数据卷 `auth-center_auth-data`，原镜像保留为 `legacy` 回退点。自定义 Compose 项目首次接管时通过 `AUTH_PROJECT_NAME` 指定，之后固定记录，不要切换安装目录。
@@ -294,7 +347,17 @@ docker run -d --name auth-center --restart unless-stopped \
 ```sh
 go test ./...
 go vet ./...
+go test -race ./...
 cd web && npm run build
 ```
 
-测试覆盖环境配置初始化、无效配置拒绝启动、重启不覆盖已有账户、公开初始化接口移除、dotenv 加载与环境变量优先级、角色与应用归属、API 权限范围、第三方/控制台会话隔离、密钥撤销、TOTP 防重放、备用码单次使用、申诉找回、恢复链接过期与重用、邮件凭据加密及持久化、Origin 检查、限流、停用账户和会话过期。SMTP 真实送达需在管理员邮件页配置实际服务商后测试。
+测试覆盖环境配置初始化、无效配置拒绝启动、重启不覆盖已有账户、公开初始化接口移除、dotenv 加载与环境变量优先级、角色与应用归属、API 权限范围、第三方/控制台会话隔离、密钥撤销、TOTP 防重放、备用码单次使用、申诉找回、恢复链接过期与重用、邮件凭据加密及持久化、Origin 检查、限流、停用账户和会话过期。新增覆盖资料归属与并发版本冲突、管理员画像隐私、分页筛选、UTC 活跃窗口与多应用去重、统计/审计失败的事务回滚、旧库迁移及重复启动。SMTP 真实送达需在管理员邮件页配置实际服务商后测试。
+
+离线包安装、更新、回退、备份、健康失败恢复与数据卷持久化使用隔离 Docker 测试；真实结构升级还需同时提供实际旧版和新版包（Python 3.12+）：
+
+```sh
+python3 scripts/test_release.py dist/auth-center-1.1.0-rc.1-amd64.tar.gz
+python3 scripts/test_schema_upgrade.py dist/auth-center-1.0.0-amd64.tar.gz dist/auth-center-1.1.0-rc.1-amd64.tar.gz
+```
+
+第二项分别验证 `update` 和 `adopt`：迁移门槛拒绝时保留原状态；允许升级后保留账户、会话、应用、主密钥和活跃历史；拒绝跨结构回退；中断后向前恢复，重建后资料与统计保留。脚本只清理本次随机创建的临时项目、数据卷及测试镜像，不操作已有部署。

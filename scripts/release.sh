@@ -21,9 +21,12 @@ docker save -o "$BUNDLE/packages/$VERSION.tar" "$IMAGE"
 if command -v sha256sum >/dev/null 2>&1; then HASH=$(sha256sum "$BUNDLE/packages/$VERSION.tar" | awk '{print $1}');
 else HASH=$(shasum -a 256 "$BUNDLE/packages/$VERSION.tar" | awk '{print $1}'); fi
 ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
-printf '%s\n%s\n1\n' "$ID" "$HASH" > "$BUNDLE/packages/$VERSION.meta"
+SCHEMA=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$ID")
+[ "$SCHEMA" = 2 ] || { echo '镜像结构版本与发布工具不一致' >&2; exit 1; }
+printf '%s\n%s\n%s\n' "$ID" "$HASH" "$SCHEMA" > "$BUNDLE/packages/$VERSION.meta"
 printf '%s\n' "$VERSION" > "$BUNDLE/RELEASE"
 cp authctl.sh compose.yaml .env.docker.example README.md "$BUNDLE/"
+cp -R docs "$BUNDLE/"
 chmod 755 "$BUNDLE/authctl.sh"
 # macOS resource-fork sidecars are not installation packages and must not ship.
 COPYFILE_DISABLE=1 tar -czf "$WORK/release.tar.gz" -C "$WORK" auth-center

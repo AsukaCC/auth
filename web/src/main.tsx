@@ -24,12 +24,19 @@ import {
   Code2,
   Clock3,
   Fingerprint,
-  Activity,
   Terminal,
   ShieldCheck,
+  ArrowRight,
+  BookOpen,
+  Sparkles,
+  RefreshCw,
+  Layers3,
+  Settings2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import "./style.css";
+import { AdminInsights, ProfileEditor } from "./insights";
+import { actionLabel } from "./audit";
 
 type User = {
   id: string;
@@ -96,6 +103,8 @@ type Page =
   | "overview"
   | "sessions"
   | "security"
+  | "profile"
+  | "analytics"
   | "applications"
   | "keys"
   | "users"
@@ -108,6 +117,8 @@ const labels: Record<Page, string> = {
   overview: "概览",
   sessions: "登录会话",
   security: "账户安全",
+  profile: "个人资料",
+  analytics: "用户分析",
   applications: "应用管理",
   keys: "API 密钥",
   users: "用户与权限",
@@ -120,6 +131,8 @@ const icons: Record<Page, React.ElementType> = {
   overview: LayoutDashboard,
   sessions: Monitor,
   security: ShieldCheck,
+  profile: Fingerprint,
+  analytics: Users,
   applications: AppWindow,
   keys: KeyRound,
   users: Users,
@@ -132,23 +145,6 @@ const roleLabel: Record<string, string> = {
   admin: "管理员",
   developer: "开发者",
   user: "普通用户",
-};
-const actionLabel: Record<string, string> = {
-  "auth.login": "账户登录",
-  "auth.register": "新账户注册",
-  "password.change": "修改密码",
-  "password.recover": "密码找回",
-  "2fa.enable": "启用两步验证",
-  "2fa.disable": "关闭两步验证",
-  "application.create": "创建应用",
-  "key.create": "创建 API 密钥",
-  "key.revoke": "撤销 API 密钥",
-  "session.revoke": "撤销登录会话",
-  "mail.update": "更新邮件配置",
-  "user.update": "修改用户权限",
-  "appeal.approved": "批准找回申诉",
-  "appeal.rejected": "拒绝找回申诉",
-  "recovery.mail_failed": "找回邮件发送失败",
 };
 const time = (n: number) =>
   n
@@ -236,6 +232,32 @@ function Badge({
   tone?: string;
 }) {
   return <span className={`badge ${tone}`}>{children}</span>;
+}
+function IdentityVisual({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={`identity-visual ${compact ? "compact" : ""}`}
+      aria-hidden="true"
+    >
+      <div className="identity-halo" />
+      <div className="identity-ring ring-outer" />
+      <div className="identity-ring ring-inner" />
+      <div className="identity-core">
+        <Fingerprint size={compact ? 66 : 88} strokeWidth={1.1} />
+      </div>
+      <div className="identity-chip identity-app">
+        <AppWindow size={20} />
+        <span>应用连接</span>
+      </div>
+      <div className="identity-chip identity-lock">
+        <ShieldCheck size={20} />
+        <span>身份保护</span>
+      </div>
+      <div className="identity-spark">
+        <KeyRound size={21} />
+      </div>
+    </div>
+  );
 }
 function Field({
   label,
@@ -331,16 +353,20 @@ function App() {
     [busy, setBusy] = useState(false),
     [modal, setModal] = useState<Modal | null>(null),
     [authMode, setAuthMode] = useState("login"),
-    [sidebar, setSidebar] = useState(false);
+    [sidebar, setSidebar] = useState(false),
+    [mobile, setMobile] = useState(
+      () => window.matchMedia("(max-width: 760px)").matches,
+    );
+  const navigationRef = useRef<HTMLElement>(null);
   const [sessions, setSessions] = useState<Session[]>([]),
     [apps, setApps] = useState<Application[]>([]),
     [keys, setKeys] = useState<APIKey[]>([]),
-    [users, setUsers] = useState<User[]>([]),
     [appeals, setAppeals] = useState<Appeal[]>([]),
     [audits, setAudits] = useState<Audit[]>([]),
     [mail, setMail] = useState<MailConfig | null>(null),
     [search, setSearch] = useState(""),
     [refreshing, setRefreshing] = useState(false);
+  const [insightsVersion, setInsightsVersion] = useState(0);
   const resetToken = useRef(
     new URLSearchParams(location.search).get("reset") || "",
   );
@@ -364,11 +390,11 @@ function App() {
     }
     if (current.role === "admin")
       tasks.push(
-        api("/api/admin/users").then(setUsers),
         api("/api/admin/appeals").then(setAppeals),
         api("/api/admin/mail").then(setMail),
       );
     await Promise.all(tasks);
+    setInsightsVersion((value) => value + 1);
   }
   useEffect(() => {
     (async () => {
@@ -422,7 +448,50 @@ function App() {
     setSearch("");
     setSidebar(false);
     setError("");
+    window.scrollTo(0, 0);
   }, [page]);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const update = () => {
+      setMobile(media.matches);
+      if (!media.matches) setSidebar(false);
+    };
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (!sidebar || !user) return;
+    const previous = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = "hidden";
+    navigationRef.current
+      ?.querySelector<HTMLButtonElement>(".sidebar-close")
+      ?.focus();
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebar(false);
+      if (event.key === "Tab") {
+        const controls = navigationRef.current?.querySelectorAll<HTMLElement>(
+          "a[href], button:not(:disabled)",
+        );
+        if (!controls?.length) return;
+        const first = controls[0],
+          last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", dismiss);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", dismiss);
+      previousFocus?.focus();
+    };
+  }, [sidebar, user?.id]);
   async function run(task: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -469,45 +538,48 @@ function App() {
             <div className="brand-mark">
               <Shield size={24} />
             </div>
-            auth<span>身份管理平台</span>
+            <div className="brand-name">
+              Auth Center<small>身份与访问管理</small>
+            </div>
           </a>
           <div className="story-content">
-            <div className="eyebrow">ONE IDENTITY. EVERY APPLICATION.</div>
+            <div className="story-tag">
+              <Sparkles size={14} />
+              一个身份，无限连接
+            </div>
             <h1>
-              每一次访问，
+              安全，
               <br />
-              都值得信任。
+              从身份开始。
             </h1>
             <p>
-              统一身份，连接应用。
+              将每一次登录，变成安心的连接。
               <br />
-              让账户安全成为你业务的可靠起点。
+              你的账户、应用与访问权限，在这里井然有序。
             </p>
-            <div className="orbit">
-              <div className="orbit-ring ring-one" />
-              <div className="orbit-ring ring-two" />
-              <div className="orbit-center">
-                <Fingerprint size={66} strokeWidth={1.2} />
-              </div>
-              <div className="orbit-chip chip-one">
-                <AppWindow size={22} />
-              </div>
-              <div className="orbit-chip chip-two">
-                <KeyRound size={22} />
-              </div>
-              <div className="orbit-chip chip-three">
-                <LockKeyhole size={22} />
-              </div>
-            </div>
+            <IdentityVisual />
           </div>
           <div className="story-bottom">
-            <span className="status-dot" />
-            统一认证 · 安全连接
+            <span>
+              <ShieldCheck size={16} />
+              统一身份认证
+            </span>
+            <span>
+              <Fingerprint size={16} />
+              多重安全保护
+            </span>
+            <span>
+              <AppWindow size={16} />
+              应用轻松接入
+            </span>
           </div>
         </aside>
         <main className="auth-main">
           <div className="auth-box">
-            <Badge tone="blue">AUTH CENTER</Badge>
+            <div className="auth-emblem">
+              <Shield size={27} strokeWidth={1.6} />
+            </div>
+            <div className="eyebrow">AUTH CENTER / 你的身份工作空间</div>
             <h2>
               {authMode === "login"
                 ? "欢迎回来"
@@ -665,8 +737,8 @@ function App() {
               )}
             </div>
             <div className="auth-note">
-              <ShieldCheck size={15} />
-              你的身份信息始终受到保护
+              <LockKeyhole size={14} />
+              安全访问，安心连接
             </div>
           </div>
           <footer>
@@ -686,8 +758,11 @@ function App() {
     "overview",
     "sessions",
     "security",
+    "profile",
     ...(privileged ? (["applications", "keys"] as Page[]) : []),
-    ...(user.role === "admin" ? (["users", "mail", "appeals"] as Page[]) : []),
+    ...(user.role === "admin"
+      ? (["analytics", "users", "mail", "appeals"] as Page[])
+      : []),
     "audit",
     "docs",
   ];
@@ -706,30 +781,53 @@ function App() {
     };
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${sidebar ? "mobile-open" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        跳转到主要内容
+      </a>
+      <aside
+        id="workspace-navigation"
+        ref={navigationRef}
+        inert={mobile && !sidebar}
+        role={mobile && sidebar ? "dialog" : undefined}
+        aria-modal={mobile && sidebar ? true : undefined}
+        aria-label="工作空间导航"
+        className={`sidebar ${sidebar ? "mobile-open" : ""}`}
+      >
         <a
           href="#"
           onClick={(e) => {
             e.preventDefault();
             setPage("overview");
+            setSidebar(false);
           }}
           className="brand"
         >
           <div className="brand-mark">
             <Shield size={23} />
           </div>
-          auth<span>管理控制台</span>
+          <div className="brand-name">
+            Auth Center<small>身份与访问管理</small>
+          </div>
         </a>
+        <button
+          className="icon-button sidebar-close"
+          aria-label="关闭导航"
+          onClick={() => setSidebar(false)}
+        >
+          <X size={20} />
+        </button>
         <div className="workspace">
-          <div className="workspace-avatar">A</div>
+          <div className="workspace-avatar">
+            <Layers3 size={19} />
+          </div>
           <div>
             <b>Auth 工作空间</b>
             <small>身份与访问管理</small>
           </div>
-          <ChevronRight size={16} />
+          <Badge>控制台</Badge>
         </div>
-        <div className="nav-label">工作空间</div>
-        <nav>
+        <nav aria-label="工作空间导航">
+          <div className="nav-label">工作空间</div>
           {visibleNav.map((p) => {
             const Icon = icons[p];
             return (
@@ -742,7 +840,11 @@ function App() {
                 )}
                 <button
                   className={page === p ? "active" : ""}
-                  onClick={() => setPage(p)}
+                  aria-current={page === p ? "page" : undefined}
+                  onClick={() => {
+                    setPage(p);
+                    setSidebar(false);
+                  }}
                 >
                   <Icon size={18} />
                   <span>{labels[p]}</span>
@@ -785,13 +887,15 @@ function App() {
       {sidebar && (
         <div className="sidebar-backdrop" onClick={() => setSidebar(false)} />
       )}
-      <div className="main-area">
+      <div className="main-area" inert={mobile && sidebar}>
         <header className="topbar">
           <div>
             <button
               className="icon-button mobile-toggle"
               onClick={() => setSidebar(!sidebar)}
               aria-label="展开导航"
+              aria-expanded={sidebar}
+              aria-controls="workspace-navigation"
             >
               <Menu size={20} />
             </button>
@@ -800,34 +904,45 @@ function App() {
             <b>{labels[page]}</b>
           </div>
           <div>
+            <button className="topbar-docs" onClick={() => setPage("docs")}>
+              <BookOpen size={15} />
+              接入指南
+            </button>
             <span className="environment">
               <span className="status-dot" />
-              运行中
+              身份服务已连接
             </span>
             <span className="topbar-divider" />
-            <div className="avatar small">
+            <button
+              className="avatar small account-shortcut"
+              aria-label="查看个人资料"
+              title="个人资料"
+              onClick={() => setPage("profile")}
+            >
               {user.name.slice(0, 1).toUpperCase()}
-            </div>
+            </button>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           <div className="page-heading">
             <div>
               <div className="eyebrow">
                 {page === "overview"
-                  ? "YOUR IDENTITY, AT A GLANCE"
+                  ? "WORKSPACE OVERVIEW"
                   : `WORKSPACE / ${page.toUpperCase()}`}
               </div>
               <h1>
-                {page === "overview" ? "身份与访问，一目了然" : labels[page]}
+                {page === "overview" ? `欢迎回来，${user.name}` : labels[page]}
               </h1>
               <p>
                 {
                   {
-                    overview: `欢迎回来，${user.name}。在这里掌握你的账户安全与应用连接。`,
+                    overview: "每一次连接，都在你的掌握之中。",
                     sessions:
                       "查看账户登录的应用与设备，随时结束不再需要的会话。",
                     security: "管理密码和两步验证，为你的账户增加一道保护。",
+                    profile: "完善个人信息，让每一次连接更有温度。",
+                    analytics: "了解用户活跃、应用使用与每一位用户的身份画像。",
                     applications: "连接你的业务应用，统一管理注册与登录。",
                     keys: "为应用分配最小必要的 API 权限，安全调用身份服务。",
                     users: "管理账户状态与角色，明确每个人的访问边界。",
@@ -866,7 +981,7 @@ function App() {
                     }
                   }}
                 >
-                  <Activity size={16} className={refreshing ? "spin" : ""} />
+                  <RefreshCw size={15} className={refreshing ? "spin" : ""} />
                   刷新状态
                 </Button>
               ) : null}
@@ -879,19 +994,82 @@ function App() {
           )}
           {page === "overview" && (
             <>
-              <div className="hero-banner">
-                <div className="hero-icon">
-                  <ShieldCheck size={29} />
+              <section className="hero-banner" aria-label="身份工作空间">
+                <div className="hero-copy">
+                  <div className="hero-label">
+                    <span className="status-dot" />
+                    AUTH CENTER · 你的身份工作空间
+                  </div>
+                  <h2>
+                    所有连接，
+                    <br />
+                    <span>尽在掌握。</span>
+                  </h2>
+                  <p>
+                    一个身份，连接你的每一个应用。
+                    <br />
+                    从登录到访问，让安全变得简单。
+                  </p>
+                  <div className="hero-actions">
+                    <Button onClick={() => setPage("security")}>
+                      <ShieldCheck size={16} />
+                      管理账户安全
+                      <ArrowRight size={15} />
+                    </Button>
+                    <button
+                      className="hero-link"
+                      onClick={() => setPage("docs")}
+                    >
+                      探索接入指南
+                      <ArrowUpRight size={15} />
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <h3>一个身份，安全连接所有应用</h3>
-                  <p>从登录会话到 API 访问，让每次连接都在掌握之中。</p>
-                </div>
+                <IdentityVisual compact />
+              </section>
+              <div className="quick-access" aria-label="快捷操作">
                 <button onClick={() => setPage("security")}>
-                  检查账户安全
-                  <ArrowUpRight size={17} />
+                  <span className="quick-icon blue">
+                    <ShieldCheck size={20} />
+                  </span>
+                  <span>
+                    <b>安全中心</b>
+                    <small>
+                      {user.tfa ? "两步验证已开启" : "为账户再加一道保护"}
+                    </small>
+                  </span>
+                  <ChevronRight size={16} />
                 </button>
-                <div className="banner-rings" />
+                <button onClick={() => setPage("sessions")}>
+                  <span className="quick-icon mint">
+                    <Monitor size={20} />
+                  </span>
+                  <span>
+                    <b>我的设备</b>
+                    <small>{sessions.length} 个有效登录会话</small>
+                  </span>
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={() =>
+                    setPage(privileged ? "applications" : "profile")
+                  }
+                >
+                  <span className="quick-icon violet">
+                    <Settings2 size={20} />
+                  </span>
+                  <span>
+                    <b>{privileged ? "应用工作台" : "个人资料"}</b>
+                    <small>
+                      {privileged ? "管理应用与身份接入" : "管理你的身份信息"}
+                    </small>
+                  </span>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="section-heading">
+                <h2>工作空间概况</h2>
+                <span>账户与连接的实时动态</span>
               </div>
               <div className="stats-grid">
                 <Stat
@@ -928,7 +1106,7 @@ function App() {
                 />
               </div>
               <div className="dashboard-grid">
-                <section className="panel">
+                <section className="panel sessions-panel">
                   <div className="panel-title">
                     <div>
                       <h2>登录中的应用</h2>
@@ -972,7 +1150,7 @@ function App() {
                     发现陌生设备？前往登录会话撤销访问。
                   </div>
                 </section>
-                <section className="panel">
+                <section className="panel security-summary">
                   <div className="panel-title">
                     <div>
                       <h2>安全检查</h2>
@@ -1319,82 +1497,21 @@ function App() {
               </section>
             </>
           )}
-          {page === "users" && (
-            <section className="panel">
-              <TableToolbar
-                title="用户账户"
-                count={users.length}
-                search={search}
-                setSearch={setSearch}
-              />
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>用户</th>
-                      <th>身份角色</th>
-                      <th>两步验证</th>
-                      <th>账户状态</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered(users, (u) => u.name + u.email).map((u) => (
-                      <tr key={u.id}>
-                        <td>
-                          <div className="table-app">
-                            <div className="avatar">{u.name.slice(0, 1)}</div>
-                            <div>
-                              <b>
-                                {u.name}{" "}
-                                {u.id === user.id && (
-                                  <Badge tone="blue">我</Badge>
-                                )}
-                              </b>
-                              <small>{u.email}</small>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <Badge
-                            tone={
-                              u.role === "admin"
-                                ? "purple"
-                                : u.role === "developer"
-                                  ? "blue"
-                                  : "gray"
-                            }
-                          >
-                            {roleLabel[u.role]}
-                          </Badge>
-                        </td>
-                        <td>{u.tfa ? "已启用" : "未启用"}</td>
-                        <td>
-                          <Badge tone={u.disabled ? "gray" : "green"}>
-                            {u.disabled ? "已停用" : "正常"}
-                          </Badge>
-                        </td>
-                        <td>
-                          <button
-                            className="text-button"
-                            onClick={() => open("user", u)}
-                          >
-                            管理权限
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {!filtered(users, (u) => u.name + u.email).length && (
-                  <div className="no-results">没有匹配的账户</div>
-                )}
-              </div>
-              <div className="panel-foot">
-                普通用户通过已授权的第三方 API 注册。开发者可创建自己的应用及
-                API 密钥。
-              </div>
-            </section>
+          {page === "users" && user.role === "admin" && (
+            <AdminInsights
+              api={api}
+              directoryOnly
+              version={insightsVersion}
+              manage={(account) => open("user", account)}
+            />
+          )}
+          {page === "profile" && <ProfileEditor api={api} onSaved={refresh} />}
+          {page === "analytics" && user.role === "admin" && (
+            <AdminInsights
+              api={api}
+              version={insightsVersion}
+              manage={(account) => open("user", account)}
+            />
           )}
           {page === "mail" && mail && (
             <div className="mail-grid">
@@ -2195,6 +2312,11 @@ function AuditTable({ audits }: { audits: Audit[] }) {
   );
 }
 function Docs({ copy }: { copy: (s: string) => void }) {
+  const healthSnippet = `# 公开健康查询，无需登录或 API Key
+curl -i '${location.origin}/health'
+
+# 通过 API 路径查询，非 2xx 状态时返回非零退出码
+curl --fail-with-body '${location.origin}/api/health'`;
   const snippet = `# 在应用服务端调用，禁止在浏览器暴露 API Key\ncurl -X POST '${location.origin}/v1/auth/login' \\\n  -H 'Content-Type: application/json' \\\n  -H 'X-API-Key: YOUR_API_KEY' \\\n  -d '{"email":"user@example.com","password":"your-password","code":"123456"}'`;
   return (
     <div className="docs">
@@ -2211,10 +2333,74 @@ function Docs({ copy }: { copy: (s: string) => void }) {
           所有账户共用一个身份目录。第三方注册创建普通用户，不会授予管理权限。
         </div>
       </section>
+      <section className="panel docs-intro">
+        <div className="panel-title">
+          <h2>公开健康查询</h2>
+          <Badge tone="green">无需认证</Badge>
+        </div>
+        <p>
+          用于监控服务及 SQLite 数据库连接，无需登录 Cookie、X-API-Key 或 Bearer
+          Token，无需请求体。
+        </p>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>方法 / 路径</th>
+                <th>正常响应</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ["/health", '200 · {"status":"ok"}', "公开健康查询"],
+                ["/api/health", '200 · {"status":"ok"}', "通过 API 路径查询"],
+                ["/healthz", "204 · 无响应体", "容器健康探针"],
+              ].map(([path, response, usage]) => (
+                <tr key={path}>
+                  <td>
+                    <Badge tone="green">GET</Badge> <code>{path}</code>
+                  </td>
+                  <td>
+                    <code>{response}</code>
+                  </td>
+                  <td>{usage}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>
+          数据库不可用时均返回 HTTP 503 与
+          <code>{' {"error":"服务暂不可用"}'}</code>。 数据库检查超时为 2
+          秒，响应禁止缓存，不返回内部错误详情；健康检查不包含 SMTP
+          送达或其他外部服务。
+        </p>
+      </section>
+      <section className="panel code-panel">
+        <div className="panel-title">
+          <h2>健康查询调用示例</h2>
+          <button className="text-button" onClick={() => copy(healthSnippet)}>
+            <Copy size={15} />
+            复制
+          </button>
+        </div>
+        <pre>
+          <code>{healthSnippet}</code>
+        </pre>
+        <div className="panel-foot">
+          示例使用当前访问地址，生产环境请替换为实际 Auth 服务地址。
+          调用方应同时处理 HTTP 503、请求超时与网络连接失败。
+        </div>
+      </section>
       <section className="panel">
         <div className="panel-title">
-          <h2>API 端点</h2>
+          <h2>第三方认证 API 端点</h2>
           <Badge tone="blue">v1</Badge>
+        </div>
+        <div className="info-strip">
+          以下 /v1 接口均需要 X-API-Key；会话接口还需要 Bearer Token。 API Key
+          仅保存在应用服务端。
         </div>
         <div className="table-scroll">
           <table>

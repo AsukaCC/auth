@@ -36,9 +36,32 @@ write_state() {
   printf '%s\n%s\n%s\n%s\n' "$1" "$2" "$3" "$4" > "$STATE/state.tmp"
   mv "$STATE/state.tmp" "$STATE/state"
 }
+image_schema() {
+  detected=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$1") || return 1
+  case "$detected" in 1|2) printf '%s\n' "$detected" ;; ''|'<no value>') printf '1\n' ;; *) return 1 ;; esac
+}
 recover() {
   read_state
+  floor=1
+  [ ! -f "$STATE/schema-floor" ] || floor=$(cat "$STATE/schema-floor")
+  case "$floor" in 1|2) ;; *) echo '结构保护记录无效，停止恢复。' >&2; return 1 ;; esac
   if [ -n "$CURRENT" ]; then
+    current_schema=$(image_schema "$CURRENT_ID") || return 1
+    if [ "$current_schema" -lt "$floor" ]; then
+      # A migration may already have committed. Never launch the old binary or
+      # restore a backup automatically: retry the recorded new image forward.
+      [ -f "$STATE/pending" ] || { echo '禁止跨结构降级，请使用兼容当前数据库的新镜像。' >&2; return 1; }
+      forward=$(field "$STATE/pending" 1)
+      valid_version "$forward" || return 1
+      forward_id=$(cat "$STATE/versions/$forward/image") || return 1
+      forward_schema=$(image_schema "$forward_id") || return 1
+      [ "$forward_schema" -ge "$floor" ] || return 1
+      echo "数据库可能已升级，仅向前恢复版本 $forward …"
+      start "$forward" "$forward_id" || return 1
+      write_state "$forward" "$forward_id" "$CURRENT" "$CURRENT_ID"
+      rm -f "$STATE/pending"
+      return 0
+    fi
     echo "恢复已记录版本 $CURRENT …"
     start "$CURRENT" "$CURRENT_ID" || return 1
   else
@@ -78,14 +101,14 @@ load_release() {
   expected=$(field "$meta" 2)
   schema=$(field "$meta" 3)
   printf '%s\n' "$TARGET_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || die "镜像 ID 无效。"
-  [ "$schema" = 1 ] || die "此管理工具只支持数据库版本 1；跨结构升级需要专门迁移流程。"
+  case "$schema" in 1|2) ;; *) die "此管理工具仅支持数据库版本 1 和 2。" ;; esac
   [ "$(digest "$ROOT/packages/$TARGET.tar")" = "$expected" ] || die "安装包校验失败，服务未变更。"
   if [ -f "$STATE/versions/$TARGET/image" ]; then
     [ "$(cat "$STATE/versions/$TARGET/image")" = "$TARGET_ID" ] || die "同一版本号对应不同镜像，请发布新版本号。"
   fi
   docker load -i "$ROOT/packages/$TARGET.tar" >/dev/null
   [ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$TARGET_ID")" = "$TARGET" ] || die "镜像版本与安装包不一致。"
-  [ "$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$TARGET_ID")" = 1 ] || die "镜像数据库版本不兼容。"
+  [ "$(image_schema "$TARGET_ID")" = "$schema" ] || die "镜像数据库版本与安装包不一致。"
   mkdir -p "$STATE/versions/$TARGET"
   printf '%s\n' "$TARGET_ID" > "$STATE/versions/$TARGET/image"
   if [ ! -f "$STATE/versions/$TARGET/compose.yaml" ]; then
@@ -143,12 +166,11 @@ case "$ACTION" in
   adopt)
     [ -z "$CURRENT" ] && [ -n "$containers" ] || die "adopt 仅用于接管现有的单实例 Compose 部署。"
     old_schema=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$actual_id")
-    case "$old_schema" in 1|'') ;; *) die "原镜像数据库结构版本不兼容，拒绝自动接管。" ;; esac
+    case "$old_schema" in 1|2|''|'<no value>') ;; *) die "原镜像数据库结构版本不兼容，拒绝自动接管。" ;; esac
     load_release
     CURRENT=legacy; CURRENT_ID=$actual_id
     mkdir -p "$STATE/versions/legacy"
     cp "$ROOT/compose.yaml" "$STATE/versions/legacy/compose.yaml"
-    write_state "$CURRENT" "$CURRENT_ID" "" ""
     ;;
   update)
     [ -n "$CURRENT" ] || die "尚未安装；已有部署请使用 adopt，新部署使用 install。"
@@ -166,7 +188,23 @@ case "$ACTION" in
     ;;
 esac
 
-# Journal exists before stopping: any subsequent failure attempts the old image.
+target_schema=$(image_schema "$TARGET_ID") || die "目标镜像结构版本无效。"
+floor=1
+[ ! -f "$STATE/schema-floor" ] || floor=$(cat "$STATE/schema-floor")
+case "$floor" in 1|2) ;; *) die "结构保护记录无效，拒绝更新。" ;; esac
+current_schema=$floor
+if [ -n "$CURRENT_ID" ]; then
+  current_schema=$(image_schema "$CURRENT_ID") || die "当前镜像结构版本无效。"
+  [ "$current_schema" -le "$floor" ] || floor=$current_schema
+fi
+[ "$target_schema" -ge "$floor" ] || die "禁止从结构版本 ${floor} 降级到 ${target_schema}；数据未变更。"
+if [ -n "$CURRENT_ID" ] && [ "$target_schema" -gt "$current_schema" ]; then
+  [ "${AUTH_ALLOW_SCHEMA_UPGRADE:-false}" = true ] || die "此操作将迁移数据库到结构版本 ${target_schema}，不能回退旧结构镜像。核对备份方案后使用 AUTH_ALLOW_SCHEMA_UPGRADE=true 重试。"
+fi
+
+# Record an adopted deployment only after all migration guards have passed.
+[ "$ACTION" != adopt ] || write_state "$CURRENT" "$CURRENT_ID" "" ""
+# Journal exists before stopping. Recovery respects the persisted schema floor.
 printf '%s\n' "$TARGET" > "$STATE/pending"
 RECOVER_ON_EXIT=1
 touch "$STATE/initialized"
@@ -181,10 +219,14 @@ if docker volume inspect "$VOLUME" >/dev/null 2>&1; then
     "${CURRENT_ID:-$TARGET_ID}" -czf - -C /data . > "$BACKUP.partial"
   mv "$BACKUP.partial" "$BACKUP"
 fi
+# Persist the floor before the new binary can touch the database. Even a failed
+# health check must not trigger recovery into an incompatible older schema.
+printf '%s\n' "$target_schema" > "$STATE/schema-floor.tmp"
+mv "$STATE/schema-floor.tmp" "$STATE/schema-floor"
 echo "部署版本 $TARGET …"
-start "$TARGET" "$TARGET_ID" || die "版本启动失败，正在恢复原版本。"
+start "$TARGET" "$TARGET_ID" || die "版本启动失败，正在按结构兼容规则恢复。"
 write_state "$TARGET" "$TARGET_ID" "$CURRENT" "$CURRENT_ID"
 rm -f "$STATE/pending"
 read_state
 prune_packages
-echo "完成：当前 ${CURRENT}，可回退到 ${PREVIOUS:-无}。托管安装包仅保留这两个版本；数据备份单独保留。"
+echo "完成：当前 ${CURRENT}，上一版本 ${PREVIOUS:-无}（仅相同结构可回退）。托管安装包保留这两个版本；数据备份单独保留。"

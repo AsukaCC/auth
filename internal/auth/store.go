@@ -132,12 +132,9 @@ func New(cfg Config) (*App, error) {
 		db.Close()
 		return nil, err
 	}
-	// Existing version-0 databases use exactly this schema; no data rewrite.
-	if version == 0 {
-		if _, err = db.Exec("PRAGMA user_version=1"); err != nil {
-			db.Close()
-			return nil, err
-		}
+	if err = migrate(db, version); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}
 	_ = os.Chmod(filepath.Join(cfg.DataDir, "auth.db"), 0600)
 	password := cfg.AdminPassword
