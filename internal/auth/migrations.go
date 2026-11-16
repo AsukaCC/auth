@@ -14,7 +14,8 @@ func migrate(db *sql.DB, version int) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.Exec(`
+	if version < 2 {
+		_, err = tx.Exec(`
 CREATE TABLE IF NOT EXISTS user_profiles (
  user_id TEXT PRIMARY KEY REFERENCES users(id),
  phone TEXT NOT NULL DEFAULT '', organization TEXT NOT NULL DEFAULT '',
@@ -50,8 +51,31 @@ INSERT INTO user_activity_daily(user_id,app_id,day,logins,first_seen,last_seen)
  first_seen=MIN(first_seen,excluded.first_seen),last_seen=MAX(last_seen,excluded.last_seen);
 PRAGMA user_version=2;
 `)
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
+	}
+	if version < 3 {
+		_, err = tx.Exec(`
+CREATE TABLE IF NOT EXISTS oauth_identities (
+ provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id),
+ email TEXT NOT NULL, created_at INTEGER NOT NULL, binding_id TEXT NOT NULL UNIQUE,
+ PRIMARY KEY(provider,subject), UNIQUE(user_id,provider)
+);
+CREATE TABLE IF NOT EXISTS oauth_flows (
+ hash TEXT PRIMARY KEY, provider TEXT NOT NULL, phase TEXT NOT NULL,
+ browser_hash TEXT NOT NULL, payload TEXT NOT NULL, expires_at INTEGER NOT NULL,
+ attempts INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS oauth_flow_expiry ON oauth_flows(expires_at);
+CREATE TABLE IF NOT EXISTS application_oauth (
+ app_id TEXT PRIMARY KEY REFERENCES applications(id), redirect_uris TEXT NOT NULL DEFAULT '[]'
+);
+PRAGMA user_version=3;
+`)
+		if err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

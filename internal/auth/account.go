@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"database/sql"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
@@ -62,6 +63,9 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (a *App) finishLogin(w http.ResponseWriter, r *http.Request, u User, appID string, cookie bool) {
+	a.finishLoginGuarded(w, r, u, appID, cookie, nil)
+}
+func (a *App) finishLoginGuarded(w http.ResponseWriter, r *http.Request, u User, appID string, cookie bool, guard func(*sql.Tx) bool) {
 	raw := token()
 	sid := id()
 	ttl := int64(24 * 3600)
@@ -74,6 +78,17 @@ func (a *App) finishLogin(w http.ResponseWriter, r *http.Request, u User, appID 
 		return
 	}
 	defer tx.Rollback()
+	// Recheck OAuth configuration, identity and application permissions under the
+	// same transaction that creates the session, closing revocation races.
+	if guard != nil && !guard(tx) {
+		fail(w, 401, "授权状态已变更，请重新登录")
+		return
+	}
+	u, err = scanUser(tx.QueryRow("SELECT "+userColumns+" FROM users WHERE id=? AND disabled=0", u.ID))
+	if err != nil {
+		fail(w, 403, "账户不可用，请联系管理员")
+		return
+	}
 	at := now()
 	_, err = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?)", sid, u.ID, appID, hash(raw), ip(r), r.UserAgent(), at, at, at+ttl)
 	if err != nil {

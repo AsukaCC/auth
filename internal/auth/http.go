@@ -140,6 +140,19 @@ func (a *App) Handler() http.Handler {
 	m.HandleFunc("GET /healthz", a.health)
 	m.HandleFunc("GET /api/status", a.status)
 	m.HandleFunc("POST /api/auth/login", a.login)
+	m.HandleFunc("GET /api/auth/oauth/providers", a.oauthPublic)
+	m.HandleFunc("POST /api/auth/oauth/{provider}/start", a.oauthStart)
+	m.HandleFunc("GET /api/auth/oauth/{provider}/callback", a.oauthCallback)
+	m.HandleFunc("GET /api/auth/oauth/launch", a.oauthLaunch)
+	m.HandleFunc("GET /api/auth/oauth/pending", a.oauthPendingStatus)
+	m.HandleFunc("POST /api/auth/oauth/complete", a.oauthComplete)
+	m.HandleFunc("POST /api/auth/oauth/cancel", a.oauthCancel)
+	m.HandleFunc("GET /api/account/identities", a.wrap(a.oauthIdentities, ""))
+	m.HandleFunc("POST /api/account/identities/{provider}/unlink", a.wrap(a.oauthUnlink, ""))
+	m.HandleFunc("GET /api/admin/oauth", a.wrap(a.oauthAdmin, "admin"))
+	m.HandleFunc("PUT /api/admin/oauth/{provider}", a.wrap(a.oauthSave, "admin"))
+	m.HandleFunc("GET /api/applications/{id}/oauth", a.wrap(a.applicationOAuth, "developer"))
+	m.HandleFunc("PUT /api/applications/{id}/oauth", a.wrap(a.applicationOAuth, "developer"))
 	m.HandleFunc("POST /api/auth/forgot", a.forgot)
 	m.HandleFunc("POST /api/auth/reset", a.reset)
 	m.HandleFunc("POST /api/auth/appeal", a.appeal)
@@ -175,6 +188,8 @@ func (a *App) Handler() http.Handler {
 	m.HandleFunc("GET /api/audit", a.wrap(a.audits, ""))
 	m.HandleFunc("POST /v1/auth/register", a.thirdRegister)
 	m.HandleFunc("POST /v1/auth/login", a.thirdLogin)
+	m.HandleFunc("POST /v1/auth/oauth/{provider}/start", a.thirdOAuthStart)
+	m.HandleFunc("POST /v1/auth/oauth/exchange", a.thirdOAuthExchange)
 	m.HandleFunc("POST /v1/session/heartbeat", a.thirdHeartbeat)
 	m.HandleFunc("GET /v1/session", a.thirdSession)
 	m.HandleFunc("POST /v1/auth/logout", a.thirdLogout)
@@ -200,7 +215,7 @@ func (a *App) Handler() http.Handler {
 				return
 			}
 		}
-		if r.Method == "POST" && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || r.URL.Path == "/api/password" || r.URL.Path == "/api/admin/deployment" || strings.HasPrefix(r.URL.Path, "/v1/")) {
+		if (r.Method == "POST" || r.Method == "PUT") && (strings.HasPrefix(r.URL.Path, "/api/auth/") || strings.HasPrefix(r.URL.Path, "/api/2fa/") || strings.HasPrefix(r.URL.Path, "/api/admin/oauth/") || strings.HasPrefix(r.URL.Path, "/api/account/identities/") || r.URL.Path == "/api/password" || r.URL.Path == "/api/admin/deployment" || strings.HasPrefix(r.URL.Path, "/v1/")) {
 			if a.limited(r) {
 				fail(w, 429, "请求过于频繁，请一分钟后重试")
 				return

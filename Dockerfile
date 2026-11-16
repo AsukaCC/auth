@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-X authcenter/internal/auth.Versi
 FROM alpine:3.22
 ARG VERSION=dev
 LABEL org.opencontainers.image.version=$VERSION \
-    io.authcenter.schema-version="2"
+    io.authcenter.schema-version="3"
 RUN apk add --no-cache ca-certificates \
     && addgroup -S -g 10001 auth \
     && adduser -S -D -H -u 10001 -G auth auth \

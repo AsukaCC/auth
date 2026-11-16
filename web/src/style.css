@@ -3300,3 +3300,31 @@ td code {
     scroll-behavior: auto !important;
   }
 }
+/* OAuth reuses the console's glass panels and accessible form controls. */
+.oauth-login { margin-top: 24px; }
+.oauth-divider { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+.oauth-divider::before, .oauth-divider::after { content: ""; height: 1px; flex: 1; background: rgba(128, 145, 175, .18); }
+.oauth-login-buttons, .oauth-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.oauth-login-buttons .button { width: 100%; }
+.oauth-completion-layout { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.oauth-completion { width: min(100%, 520px); padding: clamp(24px, 5vw, 44px); }
+.oauth-completion h1 { font-size: 25px; margin: 20px 0 12px; }
+.oauth-completion p, .oauth-bindings p, .oauth-provider-settings p, .oauth-application-settings p { line-height: 1.75; overflow-wrap: anywhere; }
+.oauth-completion form { margin: 22px 0; }
+.oauth-bindings { grid-column: 1 / -1; padding: 28px; }
+.oauth-identity-list { margin: 20px 0; }
+.oauth-identity { display: flex; align-items: center; gap: 16px; padding: 18px 0; border-bottom: 1px solid rgba(128, 145, 175, .15); }
+.oauth-identity .feature-icon { margin: 0; flex-shrink: 0; }
+.oauth-identity p { margin: 4px 0 0; font-size: 13px; }
+.oauth-identity .grow { min-width: 0; }
+.oauth-action { max-width: 540px; margin-top: 24px; }
+.oauth-provider-grid { align-items: start; }
+.oauth-provider-settings { min-width: 0; padding: 28px; }
+.oauth-provider-settings h2 { display: flex; align-items: center; gap: 8px; }
+.oauth-provider-settings form { margin-top: 20px; }
+.oauth-application-settings { border-top: 1px solid rgba(128, 145, 175, .15); padding-top: 16px; margin-top: 16px; }
+.oauth-application-settings form { margin-top: 16px; }
+.oauth-application-settings textarea { font-size: 12px; overflow-wrap: anywhere; }
+.docs-card ol { line-height: 1.9; padding-left: 24px; }
+@media (max-width: 900px) { .oauth-provider-grid { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .oauth-login-buttons { grid-template-columns: 1fr; } .oauth-bindings, .oauth-provider-settings { padding: 20px; } .oauth-identity { gap: 10px; } .oauth-identity .feature-icon { display: none; } }

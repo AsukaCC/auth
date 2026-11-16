@@ -197,6 +197,29 @@ func TestAdmissionGuards(t *testing.T) {
 	}
 }
 
+func TestSchemaThreeUpgradeGateAndFutureSchemaRejection(t *testing.T) {
+	a := testAgent(t)
+	fakeDocker(t, a, nil, false, 2)
+	a.release = &p.Release{Version: "1.3.0", Schema: 3, SHA256: strings.Repeat("c", 64)}
+	status, err := a.status(context.Background())
+	if err != nil || !status.UpdateAvailable {
+		t.Fatal("schema 3 release not recognized", err)
+	}
+	req := p.Request{Action: "update", Version: a.release.Version, SHA256: a.release.SHA256, ExpectedImage: currentID, IdempotencyKey: "schema-migration-123", Actor: "admin"}
+	if _, code, _ := a.enqueue(context.Background(), req); code != 409 {
+		t.Fatal("schema upgrade bypassed explicit confirmation")
+	}
+	a.release.Schema = 4
+	req.AllowSchemaUpgrade = true
+	status, err = a.status(context.Background())
+	if err != nil || status.UpdateAvailable {
+		t.Fatal("unsupported future schema offered as update", err)
+	}
+	if _, code, _ := a.enqueue(context.Background(), req); code != 409 {
+		t.Fatal("unsupported future schema accepted")
+	}
+}
+
 func TestInterruptedJobAndInstanceLock(t *testing.T) {
 	a := testAgent(t)
 	if _, err := New(a.cfg); err == nil {

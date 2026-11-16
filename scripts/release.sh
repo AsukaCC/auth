@@ -23,7 +23,7 @@ if command -v sha256sum >/dev/null 2>&1; then HASH=$(sha256sum "$BUNDLE/packages
 else HASH=$(shasum -a 256 "$BUNDLE/packages/$VERSION.tar" | awk '{print $1}'); fi
 ID=$(docker image inspect --format '{{.Id}}' "$IMAGE")
 SCHEMA=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$ID")
-[ "$SCHEMA" = 2 ] || { echo '镜像结构版本与发布工具不一致' >&2; exit 1; }
+[ "$SCHEMA" = 3 ] || { echo '镜像结构版本与发布工具不一致' >&2; exit 1; }
 printf '%s\n%s\n%s\n' "$ID" "$HASH" "$SCHEMA" > "$BUNDLE/packages/$VERSION.meta"
 printf '%s\n' "$VERSION" > "$BUNDLE/RELEASE"
 AGENT_IMAGE="auth-center-deploy-agent:$VERSION-$ARCH"

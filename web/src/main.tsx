@@ -33,12 +33,14 @@ import {
   Layers3,
   Settings2,
   DownloadCloud,
+  Globe,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import "./style.css";
 import { AdminInsights, ProfileEditor } from "./insights";
 import { actionLabel } from "./audit";
 import { Deployment } from "./deployment";
+import { OAuthLogin, OAuthCompletion, OAuthBindings, OAuthAdmin, ApplicationOAuthSettings, OAuthDocs, oauthReturnError } from "./oauth";
 
 type User = {
   id: string;
@@ -108,6 +110,7 @@ type Page =
   | "profile"
   | "analytics"
   | "deployment"
+  | "oauth"
   | "applications"
   | "keys"
   | "users"
@@ -123,6 +126,7 @@ const labels: Record<Page, string> = {
   profile: "个人资料",
   analytics: "用户分析",
   deployment: "系统更新",
+  oauth: "第三方登录",
   applications: "应用管理",
   keys: "API 密钥",
   users: "用户与权限",
@@ -138,6 +142,7 @@ const icons: Record<Page, React.ElementType> = {
   profile: Fingerprint,
   analytics: Users,
   deployment: DownloadCloud,
+  oauth: Globe,
   applications: AppWindow,
   keys: KeyRound,
   users: Users,
@@ -345,6 +350,7 @@ function ModalShell({
   );
 }
 function App() {
+  const [oauthReturning, setOAuthReturning] = useState(() => new URLSearchParams(location.search).get("oauth") === "complete");
   const [status, setStatus] = useState<{
       mail_enabled: boolean;
       version: string;
@@ -422,6 +428,11 @@ function App() {
         if (resetToken.current) {
           setAuthMode("reset");
           setUser(null);
+          history.replaceState({}, "", location.pathname);
+        }
+        const oauthError = new URLSearchParams(location.search).get("oauth_error");
+        if (oauthError) {
+          setError(oauthReturnError(oauthError));
           history.replaceState({}, "", location.pathname);
         }
       } catch (e) {
@@ -544,6 +555,12 @@ function App() {
         正在连接身份服务…
       </div>
     );
+  if (oauthReturning) return <OAuthCompletion api={api} onDone={async bound => {
+    await refresh();
+    setOAuthReturning(false);
+    history.replaceState({}, "", location.pathname);
+    if (bound) { setPage("security"); notify("第三方身份已绑定。"); }
+  }} onCancel={() => { setOAuthReturning(false); history.replaceState({}, "", location.pathname); }} />;
   if (!user) {
     return (
       <div className="auth-layout">
@@ -717,6 +734,7 @@ function App() {
                 <ArrowUpRight size={17} />
               </Button>
             </form>
+            {authMode === "login" && <OAuthLogin api={api} />}
             <div className="auth-links">
               {authMode === "login" ? (
                 <button
@@ -773,7 +791,7 @@ function App() {
     "profile",
     ...(privileged ? (["applications", "keys"] as Page[]) : []),
     ...(user.role === "admin"
-      ? (["analytics", "users", "mail", "appeals", "deployment"] as Page[])
+      ? (["analytics", "users", "oauth", "mail", "appeals", "deployment"] as Page[])
       : []),
     "audit",
     "docs",
@@ -954,6 +972,7 @@ function App() {
                     profile: "完善个人信息，让每一次连接更有温度。",
                     analytics: "了解用户活跃、应用使用与每一位用户的身份画像。",
                     deployment: "管理正式版本更新、服务健康与兼容回退。",
+                    oauth: "配置 Google 与 GitHub，让用户安全地登录与绑定账户。",
                     applications: "连接你的业务应用，统一管理注册与登录。",
                     keys: "为应用分配最小必要的 API 权限，安全调用身份服务。",
                     users: "管理账户状态与角色，明确每个人的访问边界。",
@@ -1349,6 +1368,7 @@ function App() {
                   </p>
                 </div>
               </section>
+              <OAuthBindings api={api} tfa={user.tfa} onChanged={refresh} />
             </div>
           )}
           {page === "applications" && (
@@ -1392,6 +1412,7 @@ function App() {
                           <ArrowUpRight size={15} />
                         </button>
                       </div>
+                      <ApplicationOAuthSettings api={api} appID={a.id} />
                     </section>
                   ))}
                 </div>
@@ -1518,6 +1539,7 @@ function App() {
           )}
           {page === "profile" && <ProfileEditor api={api} onSaved={refresh} />}
           {page === "deployment" && user.role === "admin" && <Deployment api={api} tfa={user.tfa} />}
+          {page === "oauth" && user.role === "admin" && <OAuthAdmin api={api} tfa={user.tfa} />}
           {page === "analytics" && user.role === "admin" && (
             <AdminInsights
               api={api}
@@ -1764,7 +1786,7 @@ function App() {
               </div>
             </section>
           )}
-          {page === "docs" && <Docs copy={copy} />}
+          {page === "docs" && <><Docs copy={copy} /><OAuthDocs /></>}
         </main>
       </div>
       {modal && (

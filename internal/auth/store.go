@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	_ "modernc.org/sqlite"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,14 +29,15 @@ type Config struct {
 	DeploySocket                         string
 }
 type App struct {
-	db        *sql.DB
-	cfg       Config
-	cipher    cipher.AEAD
-	limitMu   sync.Mutex
-	limits    map[string]bucket
-	lock      *os.File
-	closeOnce sync.Once
-	closeErr  error
+	db          *sql.DB
+	cfg         Config
+	cipher      cipher.AEAD
+	limitMu     sync.Mutex
+	limits      map[string]bucket
+	lock        *os.File
+	closeOnce   sync.Once
+	closeErr    error
+	oauthClient *http.Client
 }
 type bucket struct {
 	Count int

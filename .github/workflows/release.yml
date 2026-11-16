@@ -67,6 +67,11 @@ jobs:
             --output "$RUNNER_TEMP/auth-center-1.2.1-amd64.tar.gz"
           sudo python3 scripts/test_default_updates.py "$RUNNER_TEMP/auth-center-1.2.1-amd64.tar.gz" \
             "dist/auth-center-$(cat VERSION)-amd64.tar.gz"
+      - name: Verify schema migration and forward recovery
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo python3 scripts/test_schema_upgrade.py "$RUNNER_TEMP/auth-center-1.2.1-amd64.tar.gz" \
+            "dist/auth-center-$(cat VERSION)-amd64.tar.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.arch }}
@@ -97,5 +102,11 @@ jobs:
             echo 'This version is already published. Increment VERSION.' >&2
             exit 1
           fi
-          gh release create "v$version" dist/*.tar.gz dist/*.update.json \
-            --target "$GITHUB_SHA" --title "Auth Center $version" --generate-notes --latest
+          notes="docs/releases/v$version.md"
+          if [[ -f "$notes" ]]; then
+            gh release create "v$version" dist/*.tar.gz dist/*.update.json \
+              --target "$GITHUB_SHA" --title "Auth Center $version" --notes-file "$notes" --latest
+          else
+            gh release create "v$version" dist/*.tar.gz dist/*.update.json \
+              --target "$GITHUB_SHA" --title "Auth Center $version" --generate-notes --latest
+          fi

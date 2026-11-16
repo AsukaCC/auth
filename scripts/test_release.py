@@ -69,13 +69,13 @@ def main():
                 assert result.returncode != 0, "failure was accepted"
             return result
 
-        def api(path, body=None):
+        def api(path, body=None, method=None):
             headers = {"Connection": "close", "Origin": f"http://127.0.0.1:{port}"}
             data = None
             if body is not None:
                 headers["Content-Type"] = "application/json"
                 data = json.dumps(body).encode()
-            req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers=headers)
+            req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers=headers, method=method)
             # Docker Desktop's host port forwarding may lag the container health
             # probe. Retry only reads; never replay a mutating request.
             for attempt in range(15):
@@ -142,6 +142,18 @@ def main():
             print("PASS default agent startup without socket configuration or manual agent installation", flush=True)
             api("/api/applications", {"name": "升级持久化测试", "description": "保留应用与主密钥"})
             saved_apps = api("/api/applications")
+            saved_oauth = None
+            saved_redirects = None
+            if int(base_schema) >= 3:
+                for provider in ("google", "github"):
+                    api(f"/api/admin/oauth/{provider}", {"enabled": True, "client_id": "isolated-test-client",
+                        "client_secret": secrets.token_urlsafe(32), "allow_signup": False,
+                        "expected_revision": "", "password": password}, "PUT")
+                saved_oauth = api("/api/admin/oauth")
+                assert all(item["has_secret"] for item in saved_oauth["providers"])
+                assert all("client_secret" not in item for item in saved_oauth["providers"])
+                saved_redirects = {"redirect_uris": ["https://application.example.test/oauth/callback"]}
+                api(f"/api/applications/{saved_apps[0]['id']}/oauth", saved_redirects, "PUT")
             key_hash = run("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
                            "-v", f"{project}_auth-data:/data:ro", base_id, "/data/master.key").stdout
             duplicate = run("docker", "run", "--rm", "--network", "none", "-v", f"{project}_auth-data:/data", base_id, ok=False)
@@ -184,6 +196,11 @@ def main():
             print("PASS webpage rollback, independent agent survival, idempotency and persisted task", flush=True)
             assert state()[0] == first and state()[2] == second
             assert api("/api/applications") == saved_apps
+            if saved_oauth:
+                assert api("/api/admin/oauth") == saved_oauth
+                assert api(f"/api/applications/{saved_apps[0]['id']}/oauth") == saved_redirects
+                assert len(api("/api/auth/oauth/providers")["providers"]) == 2
+                print("PASS OAuth encrypted configuration and application callbacks survive update and webpage rollback", flush=True)
             assert key_hash == run("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
                                    "-v", f"{project}_auth-data:/data:ro", base_id, "/data/master.key").stdout
             backups = list((app / "backups").glob("*.tar.gz"))

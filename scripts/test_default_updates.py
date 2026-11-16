@@ -64,8 +64,9 @@ def scenario(legacy_agent):
                         raise
                     time.sleep(1)
 
-        def ctl(action):
-            return run("sh", "./authctl.sh", action, cwd=app, env=env)
+        def ctl(action, allow=False):
+            return run("sh", "./authctl.sh", action, cwd=app,
+                       env={**env, "AUTH_ALLOW_SCHEMA_UPGRADE": str(allow).lower()})
 
         try:
             ctl("install")
@@ -84,7 +85,9 @@ def scenario(legacy_agent):
             # installer must start the new agent and wire the Auth connection.
             extract(new, root)
             new_version = (app / "RELEASE").read_text().strip()
-            ctl("update")
+            # A feature release can also introduce an explicit schema migration.
+            # Default agent setup must never bypass that opt-in gate.
+            ctl("update", allow=True)
             assert api("/api/status")["version"] == new_version
             deployment = api("/api/admin/deployment")
             assert deployment["enabled"] and deployment["connected"], deployment

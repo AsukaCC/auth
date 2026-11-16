@@ -84,6 +84,16 @@ try {
 
 ## 第三方接入
 
+### Google / GitHub 登录与绑定
+
+管理员在「第三方登录」配置 Google、GitHub OAuth Client ID、Client Secret 和精确回调地址；Secret 加密保存，登录页自动显示已启用的服务。已有用户在「账户安全」验证密码及已启用的 2FA 后绑定或解绑；相同邮箱不会自动合并账户，第三方登录继续要求本地 2FA。新身份能否注册由管理员分别控制，默认关闭；开放后仅创建普通用户，并要求设置本地密码。
+
+业务应用先在「应用管理」登记 HTTPS 回调地址，再由服务端使用 `auth:login` Key 调用 `POST /v1/auth/oauth/{google|github}/start`，传入 `redirect_uri`、随机 `state`、S256 `code_challenge` 和 `code_challenge_method:"S256"`，将浏览器跳转到返回的 `authorization_url`。用户确认后返回应用，应用校验浏览器 state，再用原 Key 调用 `POST /v1/auth/oauth/exchange`，提交 `code`、`code_verifier` 和原 `redirect_uri`，换取与密码登录一致的应用 Bearer 会话。授权码 60 秒、一次使用；注册还需 `auth:register` scope。API Key 和 verifier 仅保留在应用服务端。
+
+完整的服务商后台配置、控制台 API、业务应用请求/响应、Node.js PKCE 示例、错误码及结构 3 升级说明见 **[docs/oauth.md](docs/oauth.md)**。服务商回调是本站 `/api/auth/oauth/google/callback`、`/api/auth/oauth/github/callback`；应用登记的回调是业务应用自己的接收地址，两者分别配置。Google/GitHub 应用凭据需由你在服务商后台创建并填写。
+
+### 现有账户、资料和分析接口
+
 新增控制台 API（均使用 HttpOnly Cookie；第三方 Bearer 不能访问）：
 
 | 端点 | 权限 | 请求 / 响应约定 |
@@ -107,6 +117,8 @@ try {
 | --- | --- | --- |
 | `POST /v1/auth/register` | `auth:register` | `email`、`name`、`password` |
 | `POST /v1/auth/login` | `auth:login` | `email`、`password`、可选 `code` |
+| `POST /v1/auth/oauth/{provider}/start` | `auth:login`（注册还需 `auth:register`） | `redirect_uri`、`state`、`code_challenge`、`code_challenge_method:S256`；返回浏览器 `authorization_url` |
+| `POST /v1/auth/oauth/exchange` | 开始流程的同一 `auth:login` Key | `code`、`code_verifier`、原 `redirect_uri`；返回应用 Bearer 会话 |
 | `GET /v1/session` | `session:read` | Bearer Token |
 | `POST /v1/session/heartbeat` | `session:read` | Bearer Token |
 | `POST /v1/auth/logout` | 任意有效的本应用 Key | Bearer Token |
@@ -292,7 +304,7 @@ cd auth-center
 - **安装目录的 `packages/` 只保留当前与上一可回退版本**。成功更新或回退后清理更早的托管镜像包；重复 `update` 相同版本不会重新安装。不要把用户文件放入 `packages/`。源码端 `dist/` 的发行存档、外部下载目录、Docker 缓存及数据备份不会被自动删除。
 - `backups/` 中的数据库、WAL 和主密钥备份采用私有权限单独保留，请定期转存到安全位置并按自己的保留周期清理。它们不属于旧安装包。
 - 回退切换镜像并保留当前数据库，包括更新之后新建的账户与会话，不恢复旧备份、不丢弃新数据。当前结构版本为 `2`：启动时事务性创建资料、内部标签、每日活跃表和索引，从旧结构 `0/1` 的保留审计与会话回填统计；重复启动不重复计数，密码、会话和主密钥保留。遇到更高数据库版本会拒绝启动。
-- **结构 1 → 2 的发布升级须显式执行 `AUTH_ALLOW_SCHEMA_UPGRADE=true ./authctl.sh update`（接管旧部署时用 `adopt`）**，工具仍先停服备份，再写入 `.deployment/schema-floor` 保护记录并启动迁移。升级后不可回退结构 1 镜像。迁移期间健康失败或进程中断，`recover` 只尝试向前启动兼容的新镜像，失败保留记录和备份；禁止自动降级、自动覆盖数据库恢复旧备份。相同结构版本内仍支持自动恢复与回退。请保留 `.deployment/` 的结构保护记录。
+- **跨结构发布升级须显式执行 `sudo env AUTH_ALLOW_SCHEMA_UPGRADE=true ./authctl.sh update`（接管旧部署时用 `adopt`）**，工具先停服备份，再写入 `.deployment/schema-floor` 保护记录并启动迁移。当前结构为 **3**，支持从 1/2 迁移；结构 2 新增资料/分析，结构 3 新增 OAuth 身份绑定、临时授权和应用回调表。升级后不可回退较低结构镜像。迁移期间健康失败或进程中断，`recover` 只尝试向前启动兼容的新镜像，失败保留记录和备份；禁止自动降级、自动覆盖数据库恢复旧备份。旧版代理仅支持结构 1/2，首次升级结构 3 请使用完整新安装包更新工具与代理。相同结构版本内仍支持网页更新、自动恢复与回退。请保留 `.deployment/` 的结构保护记录。
 - `.deployment/` 保存当前/上一镜像的不可变 ID、各版本 Compose 快照和操作记录；请保留。进程中断后执行 `./authctl.sh recover`。若操作锁仍存在，先确认没有发布命令在运行，再执行 `rmdir .deployment/operation.lock` 后重试；不要删除整个 `.deployment`。
 - 数据目录有进程级文件锁，退出后由系统释放；不要手工删除 `.instance.lock`。同一数据目录禁止多实例并行访问。
 - `install` 检测已有实例/数据卷后拒绝重复安装；已有源码 Compose 部署可以在**原部署目录**解压发布包内容后执行 `./authctl.sh adopt`，纳入版本管理。需先启动原部署，默认项目名 `auth-center`，标准数据卷 `auth-center_auth-data`，原镜像保留为 `legacy` 回退点。自定义 Compose 项目首次接管时通过 `AUTH_PROJECT_NAME` 指定，之后固定记录，不要切换安装目录。

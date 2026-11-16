@@ -61,13 +61,13 @@ write_state() {
 }
 image_schema() {
   detected=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$1") || return 1
-  case "$detected" in 1|2) printf '%s\n' "$detected" ;; ''|'<no value>') printf '1\n' ;; *) return 1 ;; esac
+  case "$detected" in 1|2|3) printf '%s\n' "$detected" ;; ''|'<no value>') printf '1\n' ;; *) return 1 ;; esac
 }
 recover() {
   read_state
   floor=1
   [ ! -f "$STATE/schema-floor" ] || floor=$(cat "$STATE/schema-floor")
-  case "$floor" in 1|2) ;; *) echo '结构保护记录无效，停止恢复。' >&2; return 1 ;; esac
+  case "$floor" in 1|2|3) ;; *) echo '结构保护记录无效，停止恢复。' >&2; return 1 ;; esac
   if [ -n "$CURRENT" ]; then
     current_schema=$(image_schema "$CURRENT_ID") || return 1
     if [ "$current_schema" -lt "$floor" ]; then
@@ -128,7 +128,7 @@ load_release() {
   expected=$(field "$meta" 2)
   schema=$(field "$meta" 3)
   printf '%s\n' "$TARGET_ID" | grep -Eq '^sha256:[0-9a-f]{64}$' || die "镜像 ID 无效。"
-  case "$schema" in 1|2) ;; *) die "此管理工具仅支持数据库版本 1 和 2。" ;; esac
+  case "$schema" in 1|2|3) ;; *) die "此管理工具仅支持数据库版本 1、2 和 3。" ;; esac
   [ "$(digest "$ROOT/packages/$TARGET.tar")" = "$expected" ] || die "安装包校验失败，服务未变更。"
   if [ -f "$STATE/versions/$TARGET/image" ]; then
     [ "$(cat "$STATE/versions/$TARGET/image")" = "$TARGET_ID" ] || die "同一版本号对应不同镜像，请发布新版本号。"
@@ -198,7 +198,7 @@ case "$ACTION" in
   adopt)
     [ -z "$CURRENT" ] && [ -n "$containers" ] || die "adopt 仅用于接管现有的单实例 Compose 部署。"
     old_schema=$(docker image inspect --format '{{index .Config.Labels "io.authcenter.schema-version"}}' "$actual_id")
-    case "$old_schema" in 1|2|''|'<no value>') ;; *) die "原镜像数据库结构版本不兼容，拒绝自动接管。" ;; esac
+    case "$old_schema" in 1|2|3|''|'<no value>') ;; *) die "原镜像数据库结构版本不兼容，拒绝自动接管。" ;; esac
     load_release
     CURRENT=legacy; CURRENT_ID=$actual_id
     mkdir -p "$STATE/versions/legacy"
@@ -225,7 +225,7 @@ esac
 target_schema=$(image_schema "$TARGET_ID") || die "目标镜像结构版本无效。"
 floor=1
 [ ! -f "$STATE/schema-floor" ] || floor=$(cat "$STATE/schema-floor")
-case "$floor" in 1|2) ;; *) die "结构保护记录无效，拒绝更新。" ;; esac
+case "$floor" in 1|2|3) ;; *) die "结构保护记录无效，拒绝更新。" ;; esac
 current_schema=$floor
 if [ -n "$CURRENT_ID" ]; then
   current_schema=$(image_schema "$CURRENT_ID") || die "当前镜像结构版本无效。"

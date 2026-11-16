@@ -404,7 +404,7 @@ func (a *Agent) status(ctx context.Context) (p.Status, error) {
 		return out, errors.New("无法读取结构保护记录")
 	}
 	out.RollbackAllowed = out.Previous != nil && out.Previous.Schema >= floor && !out.Pending && !out.Locked
-	out.UpdateAvailable = out.Release != nil && newer(out.Release.Version, out.Current.Version) && out.Release.Schema >= floor && out.Release.Schema <= 2 && !out.Pending && !out.Locked && out.Current.Health == "healthy"
+	out.UpdateAvailable = out.Release != nil && newer(out.Release.Version, out.Current.Version) && out.Release.Schema >= floor && out.Release.Schema <= 3 && !out.Pending && !out.Locked && out.Current.Health == "healthy"
 	return out, nil
 }
 
@@ -530,7 +530,7 @@ func (a *Agent) enqueue(ctx context.Context, in p.Request) (*p.Job, int, error) 
 	var release *p.Release
 	switch in.Action {
 	case "update":
-		if s.Pending || s.Current.Health != "healthy" || a.release == nil || a.release.Version != in.Version || a.release.SHA256 != in.SHA256 || a.release.Schema > 2 || !newer(a.release.Version, s.Current.Version) {
+		if s.Pending || s.Current.Health != "healthy" || a.release == nil || a.release.Version != in.Version || a.release.SHA256 != in.SHA256 || a.release.Schema > 3 || !newer(a.release.Version, s.Current.Version) {
 			a.active = false
 			return nil, 409, errors.New("更新信息已失效、代理不兼容或当前服务不健康，请重新检查")
 		}

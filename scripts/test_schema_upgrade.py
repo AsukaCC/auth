@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated real schema-1 -> schema-2 Docker migration and recovery checks.
+"""Isolated real older-schema -> newer-schema Docker migration/recovery checks.
 
 Usage: python3 scripts/test_schema_upgrade.py OLD_BUNDLE NEW_BUNDLE
 Only temporary projects/volumes are created and removed; supplied bundles remain
@@ -39,7 +39,7 @@ def scenario(adopt=False):
         app = extract(old_bundle, root)
         old_version = (app / "RELEASE").read_text().strip()
         old_meta = (app / "packages" / f"{old_version}.meta").read_text().splitlines()
-        assert old_meta[2] == "1", "old bundle must contain actual schema 1"
+        old_schema = int(old_meta[2])
         password = secrets.token_urlsafe(24)
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
@@ -81,7 +81,7 @@ def scenario(adopt=False):
                 assert started.returncode == 0, started.stderr
             else:
                 ctl("install")
-            assert api("/api/status")["schema_version"] == 1
+            assert api("/api/status")["schema_version"] == old_schema
             login = api("/api/auth/login", {"email": "migration@example.test", "password": password})
             uid = login["user"]["id"]
             api("/api/applications", {"name": "迁移保留应用", "description": "旧库升级验证"})
@@ -92,16 +92,17 @@ def scenario(adopt=False):
             extract(new_bundle, root)
             new_version = (app / "RELEASE").read_text().strip()
             new_meta = (app / "packages" / f"{new_version}.meta").read_text().splitlines()
-            assert new_meta[2] == "2"
+            new_schema = int(new_meta[2])
+            assert new_schema > old_schema, "bundles must contain an actual schema upgrade"
             action = "adopt" if adopt else "update"
             rejected = ctl(action, expected=1)
             assert "AUTH_ALLOW_SCHEMA_UPGRADE" in rejected.stderr, rejected.stdout + rejected.stderr
             assert (state_file.read_text() if state_file.exists() else None) == original_state
             assert not (app / ".deployment/pending").exists()
-            assert api("/api/status")["schema_version"] == 1
+            assert api("/api/status")["schema_version"] == old_schema
             if adopt:
                 # The new binary migrates the real old database, but its Docker
-                # health probe fails. Automatic recovery must keep schema 2.
+                # health probe fails. Recovery must keep the migrated schema.
                 base_tag, broken_tag = f"{project}:base", f"{project}:broken"
                 tagged = run("docker", "tag", new_meta[0], base_tag)
                 assert tagged.returncode == 0, tagged.stderr
@@ -115,13 +116,13 @@ def scenario(adopt=False):
                 package = app / "packages" / f"{broken_version}.tar"
                 saved = run("docker", "save", "-o", str(package), broken_tag)
                 assert saved.returncode == 0, saved.stderr
-                (app / "packages" / f"{broken_version}.meta").write_text(f"{broken_id}\n{hashlib.sha256(package.read_bytes()).hexdigest()}\n2\n")
+                (app / "packages" / f"{broken_version}.meta").write_text(f"{broken_id}\n{hashlib.sha256(package.read_bytes()).hexdigest()}\n{new_schema}\n")
                 (app / "RELEASE").write_text(broken_version + "\n")
                 ctl(action, expected=1, allow=True)
                 assert (app / ".deployment/pending").read_text().strip() == broken_version
                 assert state_file.read_text().splitlines()[0] == "legacy"
-                assert (app / ".deployment/schema-floor").read_text().strip() == "2"
-                assert api("/api/status")["schema_version"] == 2
+                assert (app / ".deployment/schema-floor").read_text().strip() == str(new_schema)
+                assert api("/api/status")["schema_version"] == new_schema
                 container = run("docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={project}", "--filter", "label=com.docker.compose.service=auth").stdout.strip()
                 assert run("docker", "inspect", "--format", "{{.Image}}", container).stdout.strip() == broken_id
                 # Model an operator selecting the already imported healthy new
@@ -133,7 +134,7 @@ def scenario(adopt=False):
             else:
                 ctl(action, allow=True)
             original_state = original_state or f"legacy\n{old_meta[0]}\n\n\n"
-            assert api("/api/status")["schema_version"] == 2
+            assert api("/api/status")["schema_version"] == new_schema
             assert api("/api/applications") == saved_apps
             assert original_key == key_hash(new_meta[0])
             stats = api("/api/admin/analytics")
@@ -149,9 +150,9 @@ def scenario(adopt=False):
             assert "禁止" in rejected.stderr
             assert (app / ".deployment/state").read_text() == new_state
             assert api("/api/profile")["organization"] == "迁移后资料"
-            assert (app / ".deployment/schema-floor").read_text().strip() == "2"
+            assert (app / ".deployment/schema-floor").read_text().strip() == str(new_schema)
             assert list((app / "backups").glob("*.tar.gz"))
-            print(f"PASS {action}: real 1→2 upgrade, explicit migration gate, historical backfill, credentials/key/app persistence and downgrade rejection", flush=True)
+            print(f"PASS {action}: real {old_schema}→{new_schema} upgrade, explicit migration gate, historical backfill, credentials/key/app persistence and downgrade rejection", flush=True)
 
             # Simulate the exact journal state of a crash after schema migration
             # but before updating state. Recover must select the new image.

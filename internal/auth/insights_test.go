@@ -285,7 +285,7 @@ func TestRealVersionOneMigrationAndRestart(t *testing.T) {
 		if err = a.db.QueryRow("SELECT COUNT(*),SUM(logins) FROM user_activity_daily").Scan(&count, &logins); err != nil || count != 1 || logins != 1 {
 			t.Fatal("migration duplicated historical counts", count, logins, err)
 		}
-		if err = a.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+		if err = a.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion {
 			t.Fatal(version, err)
 		}
 		p, err := readProfile(a.db, "legacy")

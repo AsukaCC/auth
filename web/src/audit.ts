@@ -1,4 +1,8 @@
 export const actionLabel: Record<string, string> = {
+  "oauth.configure": "更新第三方登录配置",
+  "oauth.bind": "绑定第三方身份",
+  "oauth.unbind": "解绑第三方身份",
+  "oauth.redirects": "更新应用 OAuth 回调地址",
   "deployment.request": "请求系统部署",
   "auth.login": "账户登录",
   "auth.register": "新账户注册",

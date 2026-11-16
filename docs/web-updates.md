@@ -37,7 +37,7 @@ SHA-256 用于检测内容变化；发行信任基于固定配置的 GitHub 仓�
 
 代理重启后将未完成任务标为「已中断」，不自动重跑。若有 `.deployment/pending` 且 Auth 尚可访问，可使用网页「恢复中断部署」。如果 Auth 已停止而无法打开页面，必须在服务器执行 `./authctl.sh recover`。若 `.deployment/operation.lock` 遗留，先确认没有部署进程运行，再按 README 清理该空锁目录；网页不会强行删除锁。
 
-网页更新不会替换部署工具和代理本身。后续如升级部署协议、Compose、迁移兼容范围或代理代码，应由服务器管理员下载完整新发行包并运行 `sudo ./authctl.sh update`；安装工具会更新代理。当前工具支持结构 1/2，拒绝不支持的更高结构。
+网页更新不会替换部署工具和代理本身。后续如升级部署协议、Compose、迁移兼容范围或代理代码，应由服务器管理员下载完整新发行包并运行 `sudo ./authctl.sh update`；安装工具会更新代理。当前工具支持结构 1/2/3，拒绝不支持的更高结构。Google/GitHub 登录引入结构 3；旧版代理仅支持结构 1/2，首次升级需完整新包并执行 `sudo env AUTH_ALLOW_SCHEMA_UPGRADE=true ./authctl.sh update`（源码首次接管用 `adopt`），后续兼容更新继续使用网页。迁移与 OAuth 配置见 [oauth.md](oauth.md)。
 
 代理与 Auth 是同一 Compose 项目的两个独立服务。维护时用 `docker compose stop deploy-agent` 停止代理，会等待在途任务完成；不要在发布期间强制杀死代理。查看状态使用 `docker compose ps`，查看日志使用 `docker compose logs deploy-agent`。保留安装目录、`.deployment/`、`backups/` 和数据卷。
 
