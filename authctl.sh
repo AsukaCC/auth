@@ -22,7 +22,30 @@ compose() {
     --project-directory "$ROOT" -f "$compose_file" "$@"
 }
 start() {
-  compose "$STATE/versions/$1/compose.yaml" "$2" up -d --no-build --pull never --wait --wait-timeout 120 auth
+  # A web job must never recreate or stop its own deployment agent.
+  compose "$STATE/versions/$1/compose.yaml" "$2" up -d --no-deps --no-build --pull never --wait --wait-timeout 120 auth
+}
+ensure_agent() {
+  # Jobs originate in the already running agent; only the host manages it.
+  [ "${AUTH_DEPLOY_AGENT_REQUEST:-false}" != true ] || return 0
+  agent_image=auth-center-deploy-agent:local
+  if [ -f "$ROOT/deploy-agent/image.id" ]; then
+    agent_image=$(cat "$ROOT/deploy-agent/image.id")
+    printf '%s\n' "$agent_image" | grep -Eq '^sha256:[0-9a-f]{64}$' || die "代理镜像记录无效。"
+    [ -f "$ROOT/deploy-agent/image.tar" ] || die "缺少部署代理镜像，请使用完整发行包。"
+    docker load -i "$ROOT/deploy-agent/image.tar" >/dev/null
+  fi
+  docker image inspect "$agent_image" >/dev/null || die "部署代理镜像不存在，请使用完整发行包或先构建 Dockerfile.agent。"
+  # Older releases used a separate Compose project. Retire its agent before
+  # starting the default service, retaining the state directory and socket volume.
+  legacy_agents=$(docker ps -q --filter "label=com.docker.compose.project=${PROJECT}-deploy" --filter label=com.docker.compose.service=deploy-agent)
+  if [ -n "$legacy_agents" ]; then
+    docker stop --time 1260 $legacy_agents >/dev/null
+  fi
+  AUTH_DEPLOY_AGENT_IMAGE="$agent_image" AUTH_IMAGE="${CURRENT_ID:-auth-center:local}" \
+    docker compose --project-name "$PROJECT" --env-file "$ROOT/.env" --project-directory "$ROOT" \
+    -f "$ROOT/compose.yaml" up -d --no-deps --no-build --pull never --wait --wait-timeout 90 deploy-agent \
+    || die "部署代理未就绪，请检查 deploy-agent 日志；数据和当前应用镜像未删除。"
 }
 stop() { compose "$ROOT/compose.yaml" "${1:-auth-center:local}" stop auth; }
 read_state() {
@@ -92,8 +115,11 @@ prune_packages() {
   done
 }
 load_release() {
-  [ -f "$ROOT/RELEASE" ] || die "缺少 RELEASE，请解压完整发布包。"
-  TARGET=${AUTH_TARGET_VERSION:-$(cat "$ROOT/RELEASE")}
+  if [ -n "${AUTH_TARGET_VERSION:-}" ]; then TARGET=$AUTH_TARGET_VERSION
+  else
+    [ -f "$ROOT/RELEASE" ] || die "缺少 RELEASE，请解压完整发布包。"
+    TARGET=$(cat "$ROOT/RELEASE")
+  fi
   valid_version "$TARGET" || die "发布版本格式无效。"
   meta="$ROOT/packages/$TARGET.meta"
   [ -f "$meta" ] && [ -f "$ROOT/packages/$TARGET.tar" ] || die "安装包不完整。"
@@ -156,7 +182,11 @@ if [ -n "$containers" ]; then
   [ "$ACTION" = recover ] || [ -z "$CURRENT" ] || [ "$actual_id" = "$CURRENT_ID" ] || die "运行镜像与发布记录不一致，请先核对手工部署变更。"
 fi
 [ -z "${AUTH_EXPECT_CURRENT_ID:-}" ] || [ "${actual_id:-}" = "$AUTH_EXPECT_CURRENT_ID" ] || die "当前镜像已变化，操作未执行。"
-if [ "$ACTION" = recover ]; then recover || die "恢复失败，请检查容器日志。"; exit 0; fi
+if [ "$ACTION" = recover ]; then
+  recover || die "恢复失败，请检查容器日志。"
+  ensure_agent
+  exit 0
+fi
 case "$ACTION" in
   install)
     [ -z "$CURRENT" ] && [ -z "$containers" ] || die "已安装，请使用 update，不能重复安装。"
@@ -178,6 +208,7 @@ case "$ACTION" in
     [ -n "$CURRENT" ] || die "尚未安装；已有部署请使用 adopt，新部署使用 install。"
     load_release
     if [ "$TARGET" = "$CURRENT" ]; then
+      ensure_agent
       prune_packages
       echo "已经是版本 ${CURRENT}，无需重复安装。"
       exit 0
@@ -205,6 +236,7 @@ if [ -n "$CURRENT_ID" ] && [ "$target_schema" -gt "$current_schema" ]; then
   [ "${AUTH_ALLOW_SCHEMA_UPGRADE:-false}" = true ] || die "此操作将迁移数据库到结构版本 ${target_schema}，不能回退旧结构镜像。核对备份方案后使用 AUTH_ALLOW_SCHEMA_UPGRADE=true 重试。"
 fi
 
+ensure_agent
 # Record an adopted deployment only after all migration guards have passed.
 [ "$ACTION" != adopt ] || write_state "$CURRENT" "$CURRENT_ID" "" ""
 # Journal exists before stopping. Recovery respects the persisted schema floor.

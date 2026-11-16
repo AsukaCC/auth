@@ -13,7 +13,7 @@ import (
 
 func (a *App) deployment(w http.ResponseWriter, r *http.Request, s *session) {
 	if a.cfg.DeploySocket == "" {
-		jsonOut(w, 200, deployprotocol.Status{Message: "部署代理尚未启用，请先完成服务器的一次性配置"})
+		jsonOut(w, 200, deployprotocol.Status{Message: "当前部署未接入更新服务；标准 Docker 安装已默认启用，旧版部署请使用完整新安装包升级"})
 		return
 	}
 	a.agentRequest(w, r, "GET", "/v1/status", nil)

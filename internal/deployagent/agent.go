@@ -34,6 +34,7 @@ var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 type Config struct {
 	Root, Socket, Repository, TokenFile string
+	Project                             string
 	SocketUID                           int
 }
 
@@ -80,6 +81,9 @@ func New(cfg Config) (*Agent, error) {
 		return nil, errors.New("部署代理已在运行")
 	}
 	a := &Agent{cfg: cfg, project: "auth-center", platform: "linux-" + runtime.GOARCH, lock: lock, jobs: map[string]*p.Job{}, run: runCommand, client: githubClient()}
+	if cfg.Project != "" {
+		a.project = cfg.Project
+	}
 	if b, e := os.ReadFile(filepath.Join(root, ".deployment", "project")); e == nil {
 		a.project = strings.TrimSpace(string(b))
 	} else if !os.IsNotExist(e) {
@@ -421,6 +425,16 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 func (a *Agent) Handler() http.Handler {
 	m := http.NewServeMux()
+	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		closing := a.closing
+		a.mu.Unlock()
+		if closing {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	m.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()

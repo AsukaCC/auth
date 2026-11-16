@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +43,9 @@ func fakeDocker(t *testing.T, a *Agent, hold <-chan struct{}, fail bool, previou
 	active := currentID
 	a.run = func(ctx context.Context, root string, args, env []string) ([]byte, error) {
 		if args[0] == "sh" {
+			if !strings.Contains(strings.Join(env, "\n"), "AUTH_DEPLOY_AGENT_REQUEST=true") {
+				t.Error("job could recreate its own agent")
+			}
 			if len(args) != 3 || args[2] != "rollback" {
 				t.Errorf("unexpected command %v", args)
 			}
@@ -212,5 +217,46 @@ func TestInterruptedJobAndInstanceLock(t *testing.T) {
 	t.Cleanup(func() { reopened.Close() })
 	if reopened.last == nil || reopened.last.Status != "interrupted" || reopened.active {
 		t.Fatal("interrupted task replayed or lost")
+	}
+}
+
+func TestProjectAndReadiness(t *testing.T) {
+	a := testAgent(t)
+	cfg := a.cfg
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Project = "custom-project"
+	custom, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if custom.project != "custom-project" {
+		t.Fatal("source deployment ignored custom project")
+	}
+	r := httptest.NewRequest("GET", "/healthz", nil)
+	w := httptest.NewRecorder()
+	custom.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatal("agent readiness must not require Auth to be running")
+	}
+	if err = custom.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	custom.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatal("closing agent reported ready")
+	}
+	if err = os.WriteFile(filepath.Join(cfg.Root, ".deployment", "project"), []byte("recorded-project\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recorded.Close()
+	if recorded.project != "recorded-project" {
+		t.Fatal("configured project overrode persistent volume identity")
 	}
 }

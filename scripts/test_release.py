@@ -53,18 +53,16 @@ def main():
         (app / ".env").write_text(
             f"AUTH_PORT={port}\nAUTH_PUBLIC_URL=http://127.0.0.1:{port}\n"
             f"AUTH_ADMIN_EMAIL=release@example.test\nAUTH_ADMIN_PASSWORD='{password}'\n"
-            "AUTH_DEPLOY_SOCKET=/run/auth-deploy/agent.sock\n"
-            f"AUTH_PROJECT_NAME={project}\n"
         )
         (app / ".env").chmod(0o600)
         env = {**os.environ, "AUTH_PROJECT_NAME": project}
         agent_id = (app / "deploy-agent/image.id").read_text().strip()
         agent_env = {**env, "AUTH_DEPLOY_AGENT_IMAGE": agent_id}
-        agent_compose = ["docker", "compose", "--env-file", str(app / ".env"), "-f", str(app / "compose.deploy.yaml")]
+        agent_compose = ["docker", "compose", "-p", project, "--env-file", str(app / ".env"), "-f", str(app / "compose.yaml")]
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
-        def ctl(action, expected=0):
-            result = run("sh", "./authctl.sh", action, cwd=app, env=env, ok=False)
+        def ctl(action, expected=0, extra_env=None):
+            result = run("sh", "./authctl.sh", action, cwd=app, env={**env, **(extra_env or {})}, ok=False)
             if expected == 0:
                 assert result.returncode == 0, result.stdout + result.stderr
             else:
@@ -134,16 +132,14 @@ def main():
             asset = re.search(r'src="([^"]+\.js)"', html).group(1)
             assert len(api(asset)) > 1000
             api("/api/auth/login", {"email": "release@example.test", "password": password})
-            run("docker", "load", "-i", str(app / "deploy-agent/image.tar"))
-            run(*agent_compose, "up", "-d", "--no-build", "--pull", "never", cwd=app, env=agent_env)
             for attempt in range(30):
                 deployment = api("/api/admin/deployment")
                 if deployment["connected"]:
                     break
                 time.sleep(1)
-            assert deployment["connected"], deployment
+            assert deployment["enabled"] and deployment["connected"], deployment
             assert deployment["current"]["health"] == "healthy"
-            print("PASS independent agent connection from non-root Auth via protected socket", flush=True)
+            print("PASS default agent startup without socket configuration or manual agent installation", flush=True)
             api("/api/applications", {"name": "升级持久化测试", "description": "保留应用与主密钥"})
             saved_apps = api("/api/applications")
             key_hash = run("docker", "run", "--rm", "--network", "none", "--entrypoint", "sha256sum",
@@ -178,7 +174,7 @@ def main():
                 time.sleep(1)
             assert deployment["job"]["status"] == "succeeded", deployment
             assert api("/api/admin/deployment", request)["id"] == job["id"], "duplicate task executed again"
-            run(*agent_compose, "restart", cwd=app, env=agent_env)
+            run(*agent_compose, "restart", "deploy-agent", cwd=app, env=agent_env)
             for attempt in range(30):
                 deployment = api("/api/admin/deployment")
                 if deployment["connected"]:
@@ -217,15 +213,26 @@ def main():
             print("PASS failed health recovery, corrupt package rejection, journal recovery and operation lock", flush=True)
 
             # Adopt an existing deployment without deleting its container or data.
+            run(*agent_compose, "stop", "deploy-agent", cwd=app, env=agent_env)
             shutil.move(app / ".deployment", app / ".prior-state")
-            (app / "RELEASE").write_text(second + "\n")
+            (app / "RELEASE").unlink()
+            # Match source Compose startup: no recorded project, no RELEASE,
+            # no socket variables, and a custom project supplied only via -p.
+            run(*agent_compose, "up", "-d", "--no-build", "--pull", "never", "--wait",
+                cwd=app, env={**agent_env, "AUTH_IMAGE": base_id})
+            deployment = api("/api/admin/deployment")
+            assert deployment["connected"] and not deployment["managed"], deployment
+            print("PASS default source Compose startup with a custom project and no deployment records", flush=True)
             ctl("install", expected=1)
-            ctl("adopt")
+            # A source checkout has no RELEASE; the agent supplies a validated
+            # version override when adopting it during the first web update.
+            ctl("adopt", extra_env={"AUTH_TARGET_VERSION": second})
             assert state()[0] == second and state()[2] == "legacy"
             ctl("rollback")
             assert state()[0] == "legacy" and api("/api/applications") == saved_apps
+            assert api("/api/admin/deployment")["connected"]
             ctl("status")
-            print("PASS adoption and rollback to original image", flush=True)
+            print("PASS source adoption without RELEASE, automatic agent and rollback to original image", flush=True)
         finally:
             # The project name was randomly created above, never a user project.
             run(*agent_compose, "down", cwd=app, env=agent_env, ok=False)

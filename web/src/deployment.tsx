@@ -67,7 +67,7 @@ export function Deployment({ api, tfa }: { api: API; tfa: boolean }) {
         <div className="grow"><div className="eyebrow">SYSTEM UPDATES</div><h2>让身份服务保持最新</h2><p>检查正式发布版本，在这里完成更新与兼容回退。</p></div>
         <button className="button" disabled={!status.connected || checking || busy} onClick={() => void check()}><RefreshCw size={16} className={checking ? "spin" : ""} />{checking ? "正在检查" : "检查新版本"}</button>
       </section>
-      {!status.enabled ? <section className="panel deployment-help"><h2>先启用部署代理</h2><p>服务器完成一次配置后，管理员即可在此执行后续更新。代理与身份服务独立运行，负责备份、切换版本和检查健康。</p><p>配置步骤见安装包中的 <code>docs/web-updates.md</code>。仅推送源码不会生成可更新版本；发布时需递增 VERSION，等待 GitHub Release 构建完成。</p></section> : <>
+      {!status.enabled ? <section className="panel deployment-help"><h2>当前部署尚未接入更新服务</h2><p>标准 Docker 安装已默认启动部署代理。旧版部署需在服务器使用完整新安装包升级一次，升级后即可在网页完成后续更新。</p><p>迁移方式见安装包中的 <code>docs/web-updates.md</code>。直接运行 Go 的开发环境不启动服务器部署代理。</p></section> : <>
         {status.message && <div className="alert info" role="status">{status.message}</div>}
         <div className="deployment-versions">
           <section className="panel"><span className="muted">当前运行版本</span><h2>{status.current?.version || "无法读取"}</h2><p><span className={`badge ${status.current?.health === "healthy" ? "green" : "amber"}`}>{status.current?.health === "healthy" ? "服务健康" : status.current?.health === "stopped" ? "已停止" : "等待健康确认"}</span></p><small>数据库结构 {status.current?.schema ?? "—"} · {status.platform || "—"}</small></section>

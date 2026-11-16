@@ -6,6 +6,9 @@ services:
     build:
       context: .
     restart: unless-stopped
+    depends_on:
+      deploy-agent:
+        condition: service_healthy
     ports:
       - "${AUTH_BIND_ADDRESS:-127.0.0.1}:${AUTH_PORT:-8080}:8080"
     environment:
@@ -14,7 +17,7 @@ services:
       AUTH_WEB_DIR: /app/web/dist
       AUTH_PUBLIC_URL: "${AUTH_PUBLIC_URL:-http://127.0.0.1:8080}"
       AUTH_SECURE_COOKIE: "${AUTH_SECURE_COOKIE:-false}"
-      AUTH_DEPLOY_SOCKET: "${AUTH_DEPLOY_SOCKET:-}"
+      AUTH_DEPLOY_SOCKET: /run/auth-deploy/agent.sock
       AUTH_ADMIN_EMAIL: "${AUTH_ADMIN_EMAIL:-}"
       AUTH_ADMIN_NAME: "${AUTH_ADMIN_NAME:-管理员}"
       AUTH_ADMIN_PASSWORD: "${AUTH_ADMIN_PASSWORD:-}"
@@ -29,6 +32,39 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  deploy-agent:
+    image: ${AUTH_DEPLOY_AGENT_IMAGE:-auth-center-deploy-agent:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      AUTH_INSTALL_DIR: /deployment
+      AUTH_PROJECT_NAME: "${COMPOSE_PROJECT_NAME}"
+      AUTH_UPDATE_REPOSITORY: "${AUTH_UPDATE_REPOSITORY:-AsukaCC/auth}"
+      AUTH_GITHUB_TOKEN_FILE: "${AUTH_GITHUB_TOKEN_FILE:-}"
+    volumes:
+      - .:/deployment
+      - /var/run/docker.sock:/var/run/docker.sock
+      - auth-control:/run/auth-deploy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 21m
     logging:
       driver: json-file
       options:

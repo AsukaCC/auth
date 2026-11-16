@@ -196,7 +196,9 @@ docker compose ps
 
 配置完成后也可使用 `make docker-up`。浏览器访问 http://127.0.0.1:8080 ，使用 `.env` 中配置的管理员账户登录。默认仅绑定本机回环地址，并在 `auth-center_auth-data` 命名卷中保存数据库和主密钥；镜像及容器重建不会清空数据。该卷独立于直接运行 Go 时使用的本地 `./data` 目录。首次未填写管理员配置时容器会退出，`--wait` 不能成功；通过 `docker compose logs auth` 查看缺少哪个配置项。
 
-容器以 UID/GID `10001:10001` 运行，根文件系统只读，只有 `/data` 数据卷和 `/tmp` 可写。`/healthz` 检查数据库连接，正常返回 HTTP 204，Docker 状态显示 `healthy`。健康状态不会检查第三方 SMTP 的送达情况。
+Auth 容器以 UID/GID `10001:10001` 运行，根文件系统只读，只有 `/data` 数据卷和 `/tmp` 可写。`/healthz` 检查数据库连接，正常返回 HTTP 204，Docker 状态显示 `healthy`。健康状态不会检查第三方 SMTP 的送达情况。
+
+Docker 部署默认同时启动独立的 `deploy-agent` 服务，无需额外开启网页更新。它拥有安装目录读写与 Docker 控制权，用于停服备份、健康检查和兼容回退；Auth 只读挂载本地 Socket，不具备 Docker 权限。首次安装会等待代理就绪，管理页可直接检查正式发布。源码开发直接运行 Go 时不启动该代理。
 
 ### 修改端口与访问域名
 
@@ -295,7 +297,7 @@ cd auth-center
 - 数据目录有进程级文件锁，退出后由系统释放；不要手工删除 `.instance.lock`。同一数据目录禁止多实例并行访问。
 - `install` 检测已有实例/数据卷后拒绝重复安装；已有源码 Compose 部署可以在**原部署目录**解压发布包内容后执行 `./authctl.sh adopt`，纳入版本管理。需先启动原部署，默认项目名 `auth-center`，标准数据卷 `auth-center_auth-data`，原镜像保留为 `legacy` 回退点。自定义 Compose 项目首次接管时通过 `AUTH_PROJECT_NAME` 指定，之后固定记录，不要切换安装目录。
 
-管理员可在「系统更新」页面检查正式发布、提交更新任务和兼容回退。需先在服务器启用独立部署代理，配置、发布流程、API 权限和恢复方式见 [网页更新指南](docs/web-updates.md)。Auth 容器不挂载 Docker Socket；高权限部署操作由独立代理完成。更新仍会短暂停服。
+管理员可在「系统更新」页面检查正式发布、提交更新任务和兼容回退。1.2.2 起标准 Docker 安装和完整发行包的 `install/update/adopt` 默认启动代理，旧版未接入的服务器使用完整新发行包升级一次即可。安装和迁移方式、API 权限及恢复步骤见 [网页更新指南](docs/web-updates.md)。Auth 容器不挂载 Docker Socket；高权限部署操作由独立代理完成。更新仍会短暂停服。
 
 `make release` 现在同时输出同名 `.update.json` 更新清单，安装包附带独立代理镜像。推送更高的 `VERSION` 到 `main` 后，GitHub Actions 自动测试、构建两种架构并创建正式 GitHub Release；仅推送源码不会生成新版本。
 

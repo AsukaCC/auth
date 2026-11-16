@@ -77,7 +77,7 @@ def scenario(adopt=False):
             if adopt:
                 loaded = run("docker", "load", "-i", str(app / "packages" / f"{old_version}.tar"))
                 assert loaded.returncode == 0, loaded.stderr
-                started = run("docker", "compose", "-p", project, "--env-file", str(app / ".env"), "-f", str(app / "compose.yaml"), "up", "-d", "--no-build", "--pull", "never", "--wait", env={**env, "AUTH_IMAGE": old_meta[0]})
+                started = run("docker", "compose", "-p", project, "--env-file", str(app / ".env"), "-f", str(app / "compose.yaml"), "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "auth", env={**env, "AUTH_IMAGE": old_meta[0]})
                 assert started.returncode == 0, started.stderr
             else:
                 ctl("install")
@@ -163,7 +163,7 @@ def scenario(adopt=False):
             assert not (app / ".deployment/pending").exists()
             assert api("/api/profile")["revision"] == 1
             assert api("/api/admin/analytics")["summary"]["logins_30d"] == 1
-            result = run("docker", "compose", "-p", project, "--env-file", str(app / ".env"), "-f", str(app / "compose.yaml"), "up", "-d", "--no-build", "--pull", "never", "--force-recreate", "--wait", env={**env, "AUTH_IMAGE": new_meta[0]})
+            result = run("docker", "compose", "-p", project, "--env-file", str(app / ".env"), "-f", str(app / "compose.yaml"), "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--force-recreate", "--wait", "auth", env={**env, "AUTH_IMAGE": new_meta[0]})
             assert result.returncode == 0, result.stderr
             assert api("/api/profile")["organization"] == "迁移后资料"
             assert api("/api/admin/analytics")["summary"]["logins_30d"] == 1

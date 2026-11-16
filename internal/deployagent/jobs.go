@@ -44,6 +44,7 @@ func (a *Agent) execute(j *p.Job) {
 	if j.Request.AllowSchemaUpgrade {
 		env[len(env)-1] = "AUTH_ALLOW_SCHEMA_UPGRADE=true"
 	}
+	env = append(env, "AUTH_DEPLOY_AGENT_REQUEST=true")
 	if j.Release != nil {
 		env = append(env, "AUTH_TARGET_VERSION="+j.Release.Version, "AUTH_EXPECT_TARGET_ID="+target)
 	}

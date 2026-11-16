@@ -11,4 +11,6 @@ RUN CGO_ENABLED=0 go build -trimpath -o /deploy-agent ./cmd/deploy-agent
 FROM docker:28-cli
 COPY --from=builder /deploy-agent /usr/local/bin/auth-deploy-agent
 WORKDIR /deployment
+HEALTHCHECK --interval=3s --timeout=5s --start-period=10s --retries=10 \
+    CMD ["/usr/local/bin/auth-deploy-agent", "--healthcheck"]
 ENTRYPOINT ["/usr/local/bin/auth-deploy-agent"]
